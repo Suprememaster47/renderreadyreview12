@@ -1,0 +1,4 @@
+cd C:\Users\YOURUSERNAME\Desktop\renderreadyreview12
+npm install
+npm start
+nodemon server.js

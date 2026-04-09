@@ -1,0 +1,66 @@
+.ud-contact-form-wrapper {
+  background: #ffffff;
+  padding: 40px;
+  border-radius: 12px;
+  box-shadow: 0 10px 25px rgba(0,0,0,0.05);
+}
+/* Any other custom styles from your snippet go here */
+
+/* Styling the Select Dropdown */
+.ud-form-select {
+  width: 100%;
+  padding: 12px 25px;
+  border-radius: 4px;
+  border: 1px solid #efefef;
+  background: #ffffff;
+  color: #637381;
+  font-size: 16px;
+  outline: none;
+  appearance: none; /* Removes default browser arrow */
+  -webkit-appearance: none;
+  -moz-appearance: none;
+  cursor: pointer;
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+/* Wrapper to add a custom animated arrow */
+.custom-select-wrapper {
+  position: relative;
+  width: 100%;
+}
+
+.custom-select-wrapper::after {
+  content: '▼';
+  font-size: 12px;
+  color: #4761b6;
+  position: absolute;
+  right: 20px;
+  top: 50%;
+  transform: translateY(-50%);
+  pointer-events: none;
+  transition: transform 0.3s ease;
+}
+
+/* Hover & Focus Animations */
+.ud-form-select:hover {
+  border-color: #4761b6;
+  box-shadow: 0 5px 15px rgba(71, 97, 182, 0.1);
+}
+
+.ud-form-select:focus {
+  border-color: #4761b6;
+  background-color: #f9faff;
+}
+
+/* Flip the arrow when active (standard behavior fix) */
+.custom-select-wrapper:focus-within::after {
+  transform: translateY(-50%) rotate(180deg);
+}
+
+/* Mobile Touch Optimization */
+@media (max-width: 767px) {
+  .ud-form-select {
+    padding: 15px 20px; /* Larger hit area for fingers */
+    font-size: 18px;    /* Prevents iOS zoom-on-focus */
+  }
+}

@@ -1,0 +1,26 @@
+nav.navbar.navbar-dark(style="background-color: #87bd55; height: 70px; min-height: 70px;")
+  .container.d-flex.align-items-center.justify-content-between.flex-nowrap
+    // Brand (Logo + Text)
+    a.navbar-brand.d-flex.align-items-center.flex-shrink-0(href='/home.html', style="transform: translateY(-3px);")
+      img(src='/HydroSweepLogo40px.png', alt='Hydro Sweep Logo', width='58', height='58', class='me-2')
+      span.brand-text Hydro Sweep Services LLC.
+
+    // Navigation links (disappear on small screens, centered, moderate spacing)
+    ul.navbar-nav.mb-0.d-none.d-lg-flex.flex-row.align-items-center.justify-content-center
+      li.nav-item.mx-3
+        a.nav-link(class=title === 'Home' ? 'active' : '', href='/home.html', style="transform: translateY(-3px);") Home
+      li.nav-item.mx-3
+        a.nav-link(class=title === 'About' ? 'active' : '', href='/about.html', style="transform: translateY(-3px);") About
+      li.nav-item.mx-3
+        a.nav-link(class=title === 'Services' ? 'active' : '', href='/services.html', style="transform: translateY(-3px);") Services
+      li.nav-item.mx-3
+        a.nav-link(class=title === 'Contact' ? 'active' : '', href='/contact.html', style="transform: translateY(-3px);") Contact
+
+    // Account buttons (always visible, right-aligned)
+    .d-flex.align-items-center.flex-shrink-0.gap-2
+      if !user
+        a.btn.btn-outline-light(href='/login', style="transform: translateY(-3px);") Login
+        a.btn.btn-primary(href='/signup', style="transform: translateY(-3px);") Create Account
+      else
+        a.btn.btn-primary(href='/account', style="transform: translateY(-3px);") My Account
+        a.btn.btn-outline-danger(href='/logout', style="transform: translateY(-3px);") Sign out

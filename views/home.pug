@@ -1,0 +1,43 @@
+extends layout
+block head
+  //- Opengraph tags
+  meta(property='og:title', content='Hackathon Starter')
+  meta(property='og:description', content='A boilerplate for Node.js web applications.')
+  meta(property='og:type', content='website')
+  meta(property='og:url', content=siteURL)
+  meta(property='og:image', content=`${siteURL}/bootstrap-logo.svg`)
+  //- Twitter Card tags (optional but recommended)
+  meta(name='twitter:card', content='summary_large_image')
+  meta(name='twitter:title', content='Hackathon Starter')
+  meta(name='twitter:description', content='A boilerplate for Node.js web applications.')
+  meta(name='twitter:image', content=`${siteURL}/bootstrap-logo.svg`)
+
+block content
+  h1 Hydro Sweep Services LLC
+  p.lead Secure Dashboard
+  hr
+  .row
+    .col-md-6
+      h2 Send us a message
+      p Have a specific question or ready to schedule your next service?
+      p Reach out to the Hydro Sweep Services team today for a free estimate or to discuss how we can revitalize your property.
+      p 
+        a.btn.btn-primary(href='#', role='button') View details »
+    .col-md-6
+      h2 Write a review
+      p Your feedback is invaluable to us and helps our local community make informed decisions.
+      p Please take a moment to share your experience with our services; we are dedicated to achieving excellence in every project we undertake.
+      p
+        a.btn.btn-primary(href='#', role='button') View details »
+    .col-md-6
+      h2 Promotions and Deals
+      p Take advantage of our exclusive offers and seasonal packages designed to maximize your home's curb appeal.
+      p Check this section frequently for limited-time savings on our premium pressure washing and landscaping services.
+      p
+        a.btn.btn-primary(href='#', role='button') View details »
+    .col-md-6
+      h2 Gallery
+      p Explore our portfolio to witness the transformative power of our work firsthand.
+      p Browse through our recent projects to see the high-quality results and attention to detail we bring to every driveway, patio, and landscape.
+      p
+        a.btn.btn-primary(href='#', role='button') View details »

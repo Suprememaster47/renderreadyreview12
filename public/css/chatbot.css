@@ -1,0 +1,161 @@
+/* public/style.css - Final Fix for White Bar Glitch */
+:root {
+  --blue: #007bff;
+  --blue-dark: #005bb5;
+  --widget-width: 360px;
+  --header-height: 50px;
+  --float-spacing: 20px; /* Space from the bottom of the screen */
+}
+
+* { box-sizing: border-box; }
+body { font-family: Inter, system-ui, Arial, sans-serif; }
+
+#chat-widget {
+  position: fixed;
+  right: 20px;
+  bottom: var(--float-spacing); 
+  width: var(--widget-width);
+  height: 500px;
+  max-height: 80vh; 
+  background: transparent; /* Container must be transparent */
+  display: flex;
+  flex-direction: column;
+  z-index: 99999;
+  
+  /* Smooth transition for opening/closing */
+  transition: transform 0.5s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+  transform: translateY(0);
+}
+
+/* THE FIX: When minimized, hide everything but the header */
+#chat-widget.minimized {
+  /* This moves the widget down so the header is at the bottom spacing */
+  transform: translateY(calc(100% - var(--header-height)));
+}
+
+#chat-widget.minimized #chat-messages,
+#chat-widget.minimized #chat-input-container {
+  display: none; /* Physically removes the white areas when closed */
+}
+
+/* Header - This is the only thing visible when closed */
+#chat-header {
+  height: var(--header-height);
+  background: linear-gradient(90deg, var(--blue), #2e8bf5);
+  color: #fff;
+  padding: 0 16px;
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  cursor: pointer;
+  touch-action: none; 
+  user-select: none;
+  border-radius: 18px 18px 0 0; /* Rounded top */
+  box-shadow: 0 4px 15px rgba(0, 0, 0, 0.2);
+  flex-shrink: 0; /* Prevents header from squishing */
+}
+
+/* Make header a floating pill when closed */
+#chat-widget.minimized #chat-header {
+  border-radius: 18px; 
+}
+
+#chat-minimize-icon {
+  font-size: 12px;
+  transition: transform 0.4s ease;
+}
+#chat-widget.minimized #chat-minimize-icon {
+  transform: rotate(180deg);
+}
+
+/* Messages Area */
+#chat-messages {
+  flex: 1;
+  padding: 15px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  background: #ffffff; 
+  border-left: 1px solid #eee;
+  border-right: 1px solid #eee;
+}
+
+/* Input Area Container */
+#chat-input-container {
+  display: flex;
+  gap: 8px;
+  padding: 12px;
+  background: #fff;
+  border-top: 1px solid #eee;
+  border-radius: 0 0 18px 18px; 
+  border-left: 1px solid #eee;
+  border-right: 1px solid #eee;
+  box-shadow: 0 10px 30px rgba(0,0,0,0.1);
+}
+
+/* Input Styling */
+#chat-input {
+  flex: 1;
+  padding: 10px 16px;
+  border-radius: 20px;
+  border: 1px solid #ddd;
+  outline: none;
+  font-size: 16px; 
+}
+
+#chat-send {
+  background: var(--blue);
+  border: none;
+  color: #fff;
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  cursor: pointer;
+  display: grid;
+  place-items: center;
+}
+
+/* Message Bubbles & Animation */
+.msg {
+  max-width: 80%;
+  padding: 10px 14px;
+  border-radius: 16px;
+  font-size: 14px;
+  line-height: 1.4;
+  opacity: 0;
+  transform: translateY(10px);
+  animation: slideIn 0.3s forwards ease;
+}
+.msg.user { margin-left: auto; background: var(--blue); color: #fff; border-bottom-right-radius: 4px; }
+.msg.bot { margin-right: auto; background: #f0f2f5; color: #111; border-bottom-left-radius: 4px; }
+@keyframes slideIn { to { opacity: 1; transform: translateY(0); } }
+
+/* 3-DOT BALLS ANIMATION */
+.typing { display: flex; gap: 4px; padding: 5px 0; }
+.typing span {
+  width: 7px;
+  height: 7px;
+  background: #999;
+  border-radius: 50%;
+  animation: bounceBall 0.8s infinite ease-in-out;
+}
+.typing span:nth-child(2) { animation-delay: 0.1s; }
+.typing span:nth-child(3) { animation-delay: 0.2s; }
+@keyframes bounceBall {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-7px); }
+}
+
+/* Mobile Optimizations */
+@media (max-width: 480px) {
+  #chat-widget {
+    right: 0;
+    left: 0;
+    margin: 0 auto;
+    width: 92%;
+    max-height: 50vh; 
+    bottom: var(--float-spacing);
+  }
+}

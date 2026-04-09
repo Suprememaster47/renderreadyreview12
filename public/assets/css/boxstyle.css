@@ -1,0 +1,18 @@
+.box_style2 {
+    border-color: #000000;
+    color:rgb(0, 0, 0);
+    background-color: #93979786;
+    text-align: center;
+    text-decoration: none;
+    display: inline-block;
+    font-size: 14px;
+    margin: 300px 0px 200px 550px;
+    
+    left:auto;
+    bottom:right;
+    transition-duration: 1s;
+    cursor: pointer;
+    
+    border-color: #c5c2c2;
+    border-style: solid;
+  }

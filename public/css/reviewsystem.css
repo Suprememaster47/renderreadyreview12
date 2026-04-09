@@ -1,0 +1,211 @@
+:root {
+  --booking-blue: #3498db;
+  --accent-red: #e21b1b;
+  --grey-border: #cccccc;
+  --light-grey-btn: #eeeeee;
+  --star-gold: #f1c40f;
+  --star-grey: #bbb;
+}
+
+/* --- 1. Booking Button Styling --- */
+.book-wrap {
+  display: flex;
+  justify-content: center;
+  margin: 30px 0;
+}
+
+.book-btn {
+  background-color: var(--booking-blue);
+  color: white !important;
+  text-decoration: none;
+  padding: 15px 35px;
+  border-radius: 30px;
+  font-weight: bold;
+  font-size: 16px;
+  border: 2px solid transparent;
+  transition: all 0.3s ease;
+  display: inline-block;
+}
+
+.book-btn:hover {
+  transform: scale(1.08);
+  border-color: #2980b9;
+  box-shadow: 0 4px 15px rgba(52, 152, 219, 0.3);
+}
+
+/* --- 2. Average Rating Stars (Decimal Support) --- */
+.reviewBox1 {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 40px;
+}
+
+.starsBox1 { 
+  display: flex; 
+  gap: 5px; 
+  font-size: 32px; 
+  transition: 0.3s;
+  cursor: default;
+}
+
+.starsBox1:hover { transform: scale(1.05); }
+
+.star1 { 
+  color: var(--star-grey);
+  transition: text-shadow 0.3s ease;
+  position: relative;
+  display: inline-block;
+}
+
+.star1.active1 { color: var(--star-gold); }
+
+.starsBox1:hover .star1.active1 {
+  text-shadow: 0 0 10px rgba(241, 196, 15, 0.5);
+}
+
+/* --- 3. Sliding Reviews Pagination --- */
+.reviews-navigation {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 20px;
+  max-width: 900px;
+  margin: 0 auto;
+}
+
+.arrow-btn {
+  width: 45px; height: 45px; border-radius: 50%;
+  border: 1px solid #ddd; background: #fff;
+  display: flex; justify-content: center; align-items: center;
+  cursor: pointer; font-size: 24px; flex-shrink: 0;
+  transition: 0.3s;
+}
+
+.arrow-btn:hover:not(.disabled) { background: var(--accent-red); color: #fff; }
+.arrow-btn.disabled { opacity: 0.2; cursor: not-allowed; }
+
+.reviews-list { flex: 1; overflow: hidden; min-height: 150px; }
+
+.review-item {
+  background: #fff; border: 1px solid #eee;
+  padding: 20px; border-radius: 15px;
+  box-shadow: 0 5px 15px rgba(0,0,0,0.05);
+  margin-bottom: 15px;
+  opacity: 0;
+}
+
+/* --- 4. Write a Review Button --- */
+.write-btn {
+  display: block;
+  margin: 40px auto 20px auto;
+  background: white;
+  color: #555;
+  border: 2px solid var(--grey-border);
+  padding: 12px 30px;
+  border-radius: 30px;
+  font-weight: bold;
+  cursor: pointer;
+  transition: all 0.3s ease;
+}
+
+.write-btn:hover {
+  transform: scale(1.05);
+  border-color: #888;
+  background: #f9f9f9;
+}
+
+/* --- 5. Form & Submit Button Styling --- */
+.review-form-wrap {
+  max-height: 0;
+  overflow: hidden;
+  max-width: 650px;
+  margin: 0 auto;
+  border: 2px solid transparent; 
+  border-radius: 20px;
+  
+  /* FIX: We make the border-color last 2.0s. 
+     Because the box closes in 0.6s, the border will still be 
+     mostly visible (not faded) by the time the box is fully shut. */
+  transition: max-height 0.6s cubic-bezier(0.4, 0, 0.2, 1), 
+              border-color 2.0s ease, 
+              padding 0.6s ease,
+              margin 0.6s ease;
+}
+
+.review-form-wrap.is-open {
+  max-height: 1200px;
+  border-color: var(--grey-border);
+  margin-top: 20px;
+  padding: 10px;
+}
+
+.review-form {
+  display: flex;
+  flex-direction: column;
+  padding: 20px;
+  background: #fff;
+}
+
+.review-form input, .review-form textarea {
+  width: 100%;
+  box-sizing: border-box;
+  margin-bottom: 15px;
+  padding: 12px;
+  border: 1px solid #ddd;
+  border-radius: 8px;
+  font-family: inherit;
+}
+
+.submit-review-btn {
+  background-color: var(--light-grey-btn);
+  color: #333;
+  border: 1px solid #ccc;
+  padding: 8px 20px;
+  border-radius: 6px; 
+  font-weight: bold;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  align-self: flex-start;
+  font-size: 14px;
+}
+
+.submit-review-btn:hover {
+  transform: scale(1.05);
+  background-color: #e2e2e2;
+  border-color: #999;
+}
+
+.stars .star {
+  font-size: 35px;
+  color: #ddd;
+  cursor: pointer;
+  transition: transform 0.2s;
+  display: inline-block;
+}
+.stars .star:hover { transform: scale(1.3); color: var(--star-gold); }
+.stars .star.active { color: var(--star-gold); }
+
+/* --- 6. Animations --- */
+.anim-next { animation: slideInRight 0.5s ease-out forwards; }
+.anim-prev { animation: slideInLeft 0.5s ease-out forwards; }
+.anim-fade { animation: fadeInUp 0.5s ease-out forwards; }
+
+@keyframes slideInRight {
+  from { opacity: 0; transform: translateX(40px); }
+  to { opacity: 1; transform: translateX(0); }
+}
+@keyframes slideInLeft {
+  from { opacity: 0; transform: translateX(-40px); }
+  to { opacity: 1; transform: translateX(0); }
+}
+@keyframes fadeInUp {
+  from { opacity: 0; transform: translateY(20px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.hidden { display: none; }
+.ReviewsTitle { text-align: center; font-size: 26px; margin: 30px 0 15px 0; font-family: serif; }
+.reveal-section { opacity: 0; transform: translateY(20px); transition: 0.8s ease; }
+.reveal-section.is-visible { opacity: 1; transform: translateY(0); }

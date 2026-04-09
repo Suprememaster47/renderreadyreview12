@@ -1,0 +1,726 @@
+
+<?php
+/**
+ * Copyright (C) 2013 peredur.net
+ * 
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ * 
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ * 
+ * You should have received a copy of the GNU General Public License
+ * along with this program.  If not, see <http://www.gnu.org/licenses/>.
+ */
+include_once 'includes/db_connect.php';
+include_once 'includes/functions.php';
+
+sec_session_start();
+?>
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta http-equiv="X-UA-Compatible" content="IE=edge" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Play | Open source Project by UIdeck</title>
+
+    <!--====== Favicon Icon ======-->
+    <link
+      rel="shortcut icon"
+      href="assets/images/favicon.svg"
+      type="image/svg"
+    />
+
+    <!-- ===== All CSS files ===== -->
+    <link rel="stylesheet" href="styles/main.css" />
+    <link rel="stylesheet" href="assets/css/bootstrap.min.css" />
+    <link rel="stylesheet" href="assets/css/animate.css" />
+    <link rel="stylesheet" href="assets/css/lineicons.css" />
+    <link rel="stylesheet" href="assets/css/ud-stylesprotected.css" />
+    <link rel="stylesheet" href="assets/css/loginobjectscss.css" />
+  </head
+    
+<body>
+<?php if (login_check($mysqli) == true) : ?>
+        
+        
+    <!-- ====== Header Start ====== -->
+    <header class="ud-header">
+      <div class="container">
+        <div class="row">
+          <div class="col-lg-12">
+            <nav class="navbar navbar-expand-lg">
+              <a class="navbar-brand" href="index.html">
+                <img src="assets/images/logo/logo.svg" alt="Logo" />
+              </a>
+              <button class="navbar-toggler">
+                <span class="toggler-icon"> </span>
+                <span class="toggler-icon"> </span>
+                <span class="toggler-icon"> </span>
+              </button>
+
+              <div class="navbar-collapse">
+                <ul id="nav" class="navbar-nav mx-auto">
+                  <li class="nav-item">
+                    <a href="home.html" class="ud-submenu-link">
+                        Home</a>
+                  </li>
+
+                  <li class="nav-item">
+                    <a href="about.html" class="ud-submenu-link">
+                      About</a>
+                  </li>
+
+                  <li class="nav-item">
+                    <a href="pricing.html" class="ud-submenu-link">
+                        Pricing</a>
+                  </li>
+
+                  <li class="nav-item">
+                    <a href="contact.html" class="ud-submenu-link">
+                        Contact</a>
+                  </li>
+
+                  <li class="nav-item nav-item-has-children">
+                    <a href="javascript:void(0)"> Services </a>
+                    <ul class="ud-submenu">
+                    
+
+                      <li class="ud-submenu-item">
+                        <a href="lawncare.html" class="ud-submenu-link">
+                          Lawn Care
+                        </a>
+                      </li>
+
+                      <li class="ud-submenu-item">
+                        <a href="pressurewashing.html" class="ud-submenu-link">
+                          Pressure Washing
+                        </a>
+                      </li>
+
+                      <li class="ud-submenu-item">
+                        <a href="hedgetrimming.html" class="ud-submenu-link">
+                          Hedge Trimming
+                        </a>
+                      </li>
+
+                      <li class="ud-submenu-item">
+                        <a href="guttercleaning.html" class="ud-submenu-link">
+                          Gutter Cleaning 
+                        </a>
+                      </li>
+
+                      <li class="ud-submenu-item">
+                        <a href="weedremoval.html" class="ud-submenu-link">
+                          Weed Removal
+                        </a>
+                      </li>
+
+                      <li class="ud-submenu-item">
+                        <a href="garbagebinwashing.html" class="ud-submenu-link">
+                          Garbage Bin Washing
+                        </a>
+                      </li>
+                      
+                      <li class="ud-submenu-item">
+                        <a href="windowwashing.html" class="ud-submenu-link">
+                          Window Washing
+                        </a>
+                      </li>
+
+                      <li class="ud-submenu-item">
+                        <a href="graveandmulchinstallation.html" class="ud-submenu-link">
+                          Gravel and Mulch Installation
+                        </a>
+                      </li>
+
+
+
+                    </ul>
+
+                  </li>
+
+
+
+                  <li class="nav-item">
+                    <a href="blog.html" class="ud-submenu-link">                          Blog</a>
+                          
+                  </li>
+
+                </ul>
+              </div>
+
+              <div class="navbar-btn d-none d-sm-inline-block">
+              <span class="ud-main-btn ud-login-btn">User: <?php echo htmlentities($_SESSION['username']); ?>!</p> </span>
+                <a href="includes/logout.php" class="ud-main-btn ud-login-btn">
+                  Sign Out
+                </a>
+              </div>
+            </nav>
+          </div>
+        </div>
+      </div>
+    </header>
+    <!-- ====== Header End ====== -->
+
+    <!-- ====== Banner Start ====== -->
+    <section class="ud-page-banner">
+      <div class="container">
+        <div class="row">
+          <div class="col-lg-12">
+            <div class="ud-banner-content">
+              <h1>Pacific Heights Landscapes</h1>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+    <!-- ====== Banner End ====== -->
+
+    <!-- ====== About Start ====== -->
+    <section id="about" class="ud-about">
+      <div class="container">
+        <div class="ud-about-wrapper wow fadeInUp" data-wow-delay=".2s">
+          <div class="ud-about-content-wrapper">
+            <div class="ud-about-content">
+              <p class="thewelcome">Welcome</p> <p class="echodname"<?php echo 
+              "<p style=' right: 20;
+              
+              text-align: center;
+              top: 5%;
+              right: 20px;
+              color:blue;
+              padding: 0px;
+              text-decoration: none;
+              display: inline-block;
+              font-size: 20px;
+              margin: -200px 9%;
+              
+              cursor: pointer;'>" . htmlentities($_SESSION['username']); ?>!  
+              
+            </p>
+                
+              <h2 class="offitle">Welcome to Pacific Heights Landscaping</h2>
+              <p>
+              Your premier destination for all your landscaping needs. At Pacific Heights, we specialize in providing top-notch services to enhance the beauty and functionality of your outdoor spaces.
+              </p>
+
+              <p>
+From meticulous lawn care to expert pressure washing, hedge trimming, and gutter cleaning, we ensure that your property maintains its pristine appearance year-round. Our skilled team also excels in weed removal, garbage bin washing, and window washing to keep every corner of your property looking immaculate.
+              </p>
+
+              <p>
+Looking to elevate your landscape's aesthetics? Our gravel and mulch installation services add texture and dimension to your outdoor environment, creating a polished and inviting atmosphere.
+              </p>
+
+              <p>
+Trust Pacific Heights Landscaping to transform your outdoor space into a haven of beauty and tranquility. Contact us today to schedule your consultation and let us bring your landscaping vision to life.
+              </p>
+
+        </div> 
+
+        
+          <button id="myBtn" 
+          class="button7">hey</button>
+        
+            
+            <div id="nav" class="navbar-nav mx-auto"> 
+              
+          
+            
+        
+            
+        
+            
+
+        <div class="navbar-collapse">
+          
+            
+            <li class="nav-item nav-item-has-children button7 buttonborder">
+              <a><span class="button">Services<span class=""></a>
+              <ul class="ud-submenu">
+              
+                
+
+                <li class="ud-submenu-item">
+                  <a href="lawncare.html" class="ud-submenu-link">
+                    Lawn Care
+                  </a>
+                </li>
+        </div>
+
+
+
+    
+
+
+
+
+
+
+
+<script>
+function toggleSubMenu() {
+  var submenu = document.querySelector('.ud-submenu');
+  submenu.classList.toggle('active');
+}
+</script>
+            </div>
+          </div>
+          <div class="ud-about-image">
+            <img src="assets/images/about/" alt="" />
+          </div>
+        </div>
+      </div>
+    </section>
+    <!-- ====== About End ====== -->
+
+    <!-- ====== Team Start ====== -->
+    <section id="team" class="ud-team">
+      <div class="container">
+        <div class="row">
+          <div class="col-lg-12">
+            <div class="ud-section-title mx-auto text-center">
+              <span>Our Team</span>
+              <h2>Meet The Team</h2>
+              <p>
+                There are many variations of passages of Lorem Ipsum available
+                but the majority have suffered alteration in some form.
+              </p>
+            </div>
+          </div>
+        </div>
+
+        <div class="row">
+          <div class="col-xl-3 col-lg-3 col-sm-6">
+            <div class="ud-single-team wow fadeInUp" data-wow-delay=".1s">
+              <div class="ud-team-image-wrapper">
+                <div class="ud-team-image">
+                  <img src="assets/images/team/team-01.png" alt="team" />
+                </div>
+
+                <img
+                  src="assets/images/team/dotted-shape.svg"
+                  alt="shape"
+                  class="shape shape-1"
+                />
+                <img
+                  src="assets/images/team/shape-2.svg"
+                  alt="shape"
+                  class="shape shape-2"
+                />
+              </div>
+              <div class="ud-team-info">
+                <h5>Adveen Desuza</h5>
+                <h6>UI Designer</h6>
+              </div>
+              <ul class="ud-team-socials">
+                <li>
+                  <a href="https://twitter.com/MusharofChy">
+                    <i class="lni lni-facebook-filled"></i>
+                  </a>
+                </li>
+                <li>
+                  <a href="https://twitter.com/MusharofChy">
+                    <i class="lni lni-twitter-filled"></i>
+                  </a>
+                </li>
+                <li>
+                  <a href="https://twitter.com/MusharofChy">
+                    <i class="lni lni-instagram-filled"></i>
+                  </a>
+                </li>
+              </ul>
+            </div>
+          </div>
+          <div class="col-xl-3 col-lg-3 col-sm-6">
+            <div class="ud-single-team wow fadeInUp" data-wow-delay=".15s">
+              <div class="ud-team-image-wrapper">
+                <div class="ud-team-image">
+                  <img src="assets/images/team/team-02.png" alt="team" />
+                </div>
+
+                <img
+                  src="assets/images/team/dotted-shape.svg"
+                  alt="shape"
+                  class="shape shape-1"
+                />
+                <img
+                  src="assets/images/team/shape-2.svg"
+                  alt="shape"
+                  class="shape shape-2"
+                />
+              </div>
+              <div class="ud-team-info">
+                <h5>Jezmin uniya</h5>
+                <h6>Product Designer</h6>
+              </div>
+              <ul class="ud-team-socials">
+                <li>
+                  <a href="https://twitter.com/MusharofChy">
+                    <i class="lni lni-facebook-filled"></i>
+                  </a>
+                </li>
+                <li>
+                  <a href="https://twitter.com/MusharofChy">
+                    <i class="lni lni-twitter-filled"></i>
+                  </a>
+                </li>
+                <li>
+                  <a href="https://twitter.com/MusharofChy">
+                    <i class="lni lni-instagram-filled"></i>
+                  </a>
+                </li>
+              </ul>
+            </div>
+          </div>
+          <div class="col-xl-3 col-lg-3 col-sm-6">
+            <div class="ud-single-team wow fadeInUp" data-wow-delay=".2s">
+              <div class="ud-team-image-wrapper">
+                <div class="ud-team-image">
+                  <img src="assets/images/team/team-03.png" alt="team" />
+                </div>
+
+                <img
+                  src="assets/images/team/dotted-shape.svg"
+                  alt="shape"
+                  class="shape shape-1"
+                />
+                <img
+                  src="assets/images/team/shape-2.svg"
+                  alt="shape"
+                  class="shape shape-2"
+                />
+              </div>
+              <div class="ud-team-info">
+                <h5>Andrieo Gloree</h5>
+                <h6>App Developer</h6>
+              </div>
+              <ul class="ud-team-socials">
+                <li>
+                  <a href="https://twitter.com/MusharofChy">
+                    <i class="lni lni-facebook-filled"></i>
+                  </a>
+                </li>
+                <li>
+                  <a href="https://twitter.com/MusharofChy">
+                    <i class="lni lni-twitter-filled"></i>
+                  </a>
+                </li>
+                <li>
+                  <a href="https://twitter.com/MusharofChy">
+                    <i class="lni lni-instagram-filled"></i>
+                  </a>
+                </li>
+              </ul>
+            </div>
+          </div>
+          <div class="col-xl-3 col-lg-3 col-sm-6">
+            <div class="ud-single-team wow fadeInUp" data-wow-delay=".25s">
+              <div class="ud-team-image-wrapper">
+                <div class="ud-team-image">
+                  <img src="assets/images/team/team-04.png" alt="team" />
+                </div>
+
+                <img
+                  src="assets/images/team/dotted-shape.svg"
+                  alt="shape"
+                  class="shape shape-1"
+                />
+                <img
+                  src="assets/images/team/shape-2.svg"
+                  alt="shape"
+                  class="shape shape-2"
+                />
+              </div>
+              <div class="ud-team-info">
+                <h5>Jackie Sanders</h5>
+                <h6>Content Writer</h6>
+              </div>
+              <ul class="ud-team-socials">
+                <li>
+                  <a href="https://twitter.com/MusharofChy">
+                    <i class="lni lni-facebook-filled"></i>
+                  </a>
+                </li>
+                <li>
+                  <a href="https://twitter.com/MusharofChy">
+                    <i class="lni lni-twitter-filled"></i>
+                  </a>
+                </li>
+                <li>
+                  <a href="https://twitter.com/MusharofChy">
+                    <i class="lni lni-instagram-filled"></i>
+                  </a>
+                </li>
+              </ul>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+    <!-- ====== Team End ====== -->
+
+    <!-- ====== Footer Start ====== -->
+    <footer class="ud-footer wow fadeInUp" data-wow-delay=".15s">
+      <div class="shape shape-1">
+        <img src="assets/images/footer/shape-1.svg" alt="shape" />
+      </div>
+      <div class="shape shape-2">
+        <img src="assets/images/footer/shape-2.svg" alt="shape" />
+      </div>
+      <div class="shape shape-3">
+        <img src="assets/images/footer/shape-3.svg" alt="shape" />
+      </div>
+      <div class="ud-footer-widgets">
+        <div class="container">
+          <div class="row">
+            <div class="col-xl-3 col-lg-4 col-md-6">
+              <div class="ud-widget">
+                <a href="index.html" class="ud-footer-logo">
+                  <img src="assets/images/logo/logo.svg" alt="logo" />
+                </a>
+                <p class="ud-widget-desc">
+                  We create digital experiences for brands and companies by
+                  using technology.
+                </p>
+                <ul class="ud-widget-socials">
+                  <li>
+                    <a href="https://twitter.com/MusharofChy">
+                      <i class="lni lni-facebook-filled"></i>
+                    </a>
+                  </li>
+                  <li>
+                    <a href="https://twitter.com/MusharofChy">
+                      <i class="lni lni-twitter-filled"></i>
+                    </a>
+                  </li>
+                  <li>
+                    <a href="https://twitter.com/MusharofChy">
+                      <i class="lni lni-instagram-filled"></i>
+                    </a>
+                  </li>
+                  <li>
+                    <a href="https://twitter.com/MusharofChy">
+                      <i class="lni lni-linkedin-original"></i>
+                    </a>
+                  </li>
+                </ul>
+              </div>
+            </div>
+
+            <div class="col-xl-2 col-lg-2 col-md-6 col-sm-6">
+              <div class="ud-widget">
+                <h5 class="ud-widget-title">About Us</h5>
+                <ul class="ud-widget-links">
+                  <li>
+                    <a href="javascript:void(0)">Home</a>
+                  </li>
+                  <li>
+                    <a href="javascript:void(0)">Features</a>
+                  </li>
+                  <li>
+                    <a href="javascript:void(0)">About</a>
+                  </li>
+                  <li>
+                    <a href="javascript:void(0)">Testimonial</a>
+                  </li>
+                </ul>
+              </div>
+            </div>
+            <div class="col-xl-2 col-lg-3 col-md-6 col-sm-6">
+              <div class="ud-widget">
+                <h5 class="ud-widget-title">Features</h5>
+                <ul class="ud-widget-links">
+                  <li>
+                    <a href="javascript:void(0)">How it works</a>
+                  </li>
+                  <li>
+                    <a href="javascript:void(0)">Privacy policy</a>
+                  </li>
+                  <li>
+                    <a href="javascript:void(0)">Terms of service</a>
+                  </li>
+                  <li>
+                    <a href="javascript:void(0)">Refund policy</a>
+                  </li>
+                </ul>
+              </div>
+            </div>
+            <div class="col-xl-2 col-lg-3 col-md-6 col-sm-6">
+              <div class="ud-widget">
+                <h5 class="ud-widget-title">Our Products</h5>
+                <ul class="ud-widget-links">
+                  <li>
+                    <a
+                      href="https://lineicons.com/"
+                      rel="nofollow noopner"
+                      target="_blank"
+                      >Lineicons
+                    </a>
+                  </li>
+                  <li>
+                    <a
+                      href="https://ecommercehtml.com/"
+                      rel="nofollow noopner"
+                      target="_blank"
+                      >Ecommerce HTML</a
+                    >
+                  </li>
+                  <li>
+                    <a
+                      href="https://ayroui.com/"
+                      rel="nofollow noopner"
+                      target="_blank"
+                      >Ayro UI</a
+                    >
+                  </li>
+                  <li>
+                    <a
+                      href="https://graygrids.com/"
+                      rel="nofollow noopner"
+                      target="_blank"
+                      >Plain Admin</a
+                    >
+                  </li>
+                </ul>
+              </div>
+            </div>
+            <div class="col-xl-3 col-lg-6 col-md-8 col-sm-10">
+              <div class="ud-widget">
+                <h5 class="ud-widget-title">Partners</h5>
+                <ul class="ud-widget-brands">
+                  <li>
+                    <a
+                      href="https://ayroui.com/"
+                      rel="nofollow noopner"
+                      target="_blank"
+                    >
+                      <img
+                        src="assets/images/footer/brands/ayroui.svg"
+                        alt="ayroui"
+                      />
+                    </a>
+                  </li>
+                  <li>
+                    <a
+                      href="https://ecommercehtml.com/"
+                      rel="nofollow noopner"
+                      target="_blank"
+                    >
+                      <img
+                        src="assets/images/footer/brands/ecommerce-html.svg"
+                        alt="ecommerce-html"
+                      />
+                    </a>
+                  </li>
+                  <li>
+                    <a
+                      href="https://graygrids.com/"
+                      rel="nofollow noopner"
+                      target="_blank"
+                    >
+                      <img
+                        src="assets/images/footer/brands/graygrids.svg"
+                        alt="graygrids"
+                      />
+                    </a>
+                  </li>
+                  <li>
+                    <a
+                      href="https://lineicons.com/"
+                      rel="nofollow noopner"
+                      target="_blank"
+                    >
+                      <img
+                        src="assets/images/footer/brands/lineicons.svg"
+                        alt="lineicons"
+                      />
+                    </a>
+                  </li>
+                  <li>
+                    <a
+                      href="https://uideck.com/"
+                      rel="nofollow noopner"
+                      target="_blank"
+                    >
+                      <img
+                        src="assets/images/footer/brands/uideck.svg"
+                        alt="uideck"
+                      />
+                    </a>
+                  </li>
+                  <li>
+                    <a
+                      href="https://tailwindtemplates.co/"
+                      rel="nofollow noopner"
+                      target="_blank"
+                    >
+                      <img
+                        src="assets/images/footer/brands/tailwindtemplates.svg"
+                        alt="tailwindtemplates"
+                      />
+                    </a>
+                  </li>
+                </ul>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="ud-footer-bottom">
+        <div class="container">
+          <div class="row">
+            <div class="col-md-8">
+              <ul class="ud-footer-bottom-left">
+                <li>
+                  <a href="javascript:void(0)">Privacy policy</a>
+                </li>
+                <li>
+                  <a href="javascript:void(0)">Support policy</a>
+                </li>
+                <li>
+                  <a href="javascript:void(0)">Terms of service</a>
+                </li>
+              </ul>
+            </div>
+            <div class="col-md-4">
+              <p class="ud-footer-bottom-right">
+                Designed and Developed by
+                <a href="https://uideck.com" rel="nofollow">UIdeck</a>
+              </p>
+            </div>
+          </div>
+        </div>
+      </div>
+    </footer>
+    <!-- ====== Footer End ====== -->
+
+    <!-- ====== Back To Top Start ====== -->
+    <a href="javascript:void(0)" class="back-to-top">
+      <i class="lni lni-chevron-up"> </i>
+    </a>
+    <!-- ====== Back To Top End ====== -->
+
+    <!-- ====== All Javascript Files ====== -->
+    <script src="assets/js/bootstrap.bundle.min.js"></script>
+    <script src="assets/js/wow.min.js"></script>
+    <script src="assets/js/main.js"></script>
+      
+            <p>If you are done, please <a href="includes/logout.php">log out</a>.</p>
+            <p>Return to <a href="protected_page2.php">next secure page</a></p>
+            <p>Return to <a href="index.php">login page</a></p>
+<?php else : ?>
+            <p>
+                <span class="error">You are not authorized to access this page.</span> Please <a href="index.php">login</a>.
+            </p>
+        <?php endif; ?>
+    
+        
+    </body>
+</html>
