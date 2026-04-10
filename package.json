@@ -4,7 +4,7 @@
   "main": "server.js",
   "type": "module",
   "scripts": {
-    "build": "npm install && node -e \"import('adminjs').then(m => (m.AdminJS || m.default).bundle?.() ?? console.log('bundle not needed'))\" || true",
+    "build": "npm install && npx adminjs bundle",
     "start": "node server.js",
     "dev": "nodemon server.js",
     "clean-install": "node -e \"fs.rmSync('node_modules', { recursive: true, force: true }); fs.rmSync('package-lock.json', { force: true }); fs.rmSync('tmp', { recursive: true, force: true });\" && npm install",
