@@ -7,10 +7,15 @@
  *
  * PRODUCTION FIXES (Render deployment):
  *
- *  1. AdminJS env flag — passes NODE_ENV into the AdminJS instance.
- *  2. bundleDir — tells AdminJS exactly where the pre-built bundle lives
- *     so it never re-bundles on startup in production.
- *  3. Static bundle route — serves .adminjs/ under the admin path.
+ *  1. AdminJS v7 bundles at runtime via admin.initialize() — do NOT set
+ *     bundleDir or add a custom static route for the bundle. Doing so
+ *     tells AdminJS "use pre-built files" but since there is no separate
+ *     build step on Render those files don't exist, so AdminJS serves
+ *     nothing and the dashboard is blank.
+ *  2. ApiClient is imported directly from 'adminjs' in Dashboard.jsx —
+ *     window.AdminJS.ApiClient does not exist in v7.
+ *  3. Stale .adminjs cache is cleared on startup so a broken bundle from
+ *     a previous deploy never survives into the next one.
  *  4. CSRF bypass uses req.originalUrl (not req.path).
  *  5. IP whitelist skipped when ALLOWED_IP is blank (rely on secret URL).
  *  6. Admin cookie sameSite:'none' on HTTPS for Render's redirect flow.
@@ -216,20 +221,40 @@ async function buildAndMountAdminJS() {
     const ADMIN_EMAIL    = (process.env.ADMIN_EMAIL    || '').trim();
     const ADMIN_PASS     = (process.env.ADMIN_PASSWORD || '').trim();
 
-    // The .adminjs folder is where `npx adminjs bundle` (run during Render's
-    // build step) writes the pre-compiled bundle.js and entry.js files.
-    const bundleDir = path.join(__dirname, '.adminjs');
+    // FIX 1: Clear any stale .adminjs bundle cache from previous failed builds.
+    //
+    // AdminJS v7 compiles your JSX components at runtime using esbuild inside
+    // admin.initialize(). The output lands in a .adminjs/ directory next to
+    // server.js. If a previous deploy left behind a broken or incomplete
+    // .adminjs/ directory, AdminJS detects it already exists and may skip
+    // re-bundling, then serve the stale (broken) bundle to the browser.
+    //
+    // Wiping it here forces a clean compile on every server start. This is
+    // safe on Render because each deploy gets a fresh ephemeral filesystem
+    // anyway — the wipe only matters when you restart without redeploying
+    // (e.g. via Render's "Restart service" button).
+    //
+    // Do NOT add a bundleDir option to the AdminJS config and do NOT add
+    // a custom express.static() route for .adminjs/ — both of those break
+    // AdminJS's own internal asset handler which is what actually serves
+    // the compiled bundle to the browser.
+    const adminBundleDir = path.join(__dirname, '.adminjs');
+    if (fs.existsSync(adminBundleDir)) {
+        try {
+            fs.rmSync(adminBundleDir, { recursive: true, force: true });
+            console.log('🧹 Cleared stale .adminjs bundle cache');
+        } catch (e) {
+            // Non-fatal — log and continue. AdminJS will overwrite anyway.
+            console.warn('⚠️  Could not clear .adminjs cache:', e.message);
+        }
+    }
 
-    const adminConfig = {
+    const admin = new AdminJS({
         resources: [Review, Response, Contact, Alert, Analytics, LastLoggedIn],
         rootPath: ADMIN_PATH,
         loginPath: `${ADMIN_PATH}/login`,
         logoutPath: `${ADMIN_PATH}/logout`,
         componentLoader,
-        // FIX 1: Tell AdminJS the runtime environment so it skips on-the-fly bundling.
-        env: {
-            NODE_ENV: process.env.NODE_ENV || 'development',
-        },
         branding: { companyName: 'Hydro Sweep Services', withMadeWithLove: false },
         dashboard: {
             component: Components.Dashboard,
@@ -322,31 +347,17 @@ async function buildAndMountAdminJS() {
                 };
             }
         },
-    };
+    });
 
-    // FIX 2: In production, point AdminJS at the pre-built bundle directory so
-    // it never attempts to re-bundle at runtime. This is what stops the double
-    // "AdminJS: bundling user components..." message in your Render logs and
-    // ensures your custom Dashboard.jsx is actually served.
-    if (IS_PRODUCTION && fs.existsSync(bundleDir)) {
-        adminConfig.bundleDir = bundleDir;
-        console.log(`📦 AdminJS using pre-built bundle from .adminjs/`);
-    }
-
-    const admin = new AdminJS(adminConfig);
+    // FIX 2: admin.initialize() is what triggers esbuild to compile
+    // Dashboard.jsx into the bundle that AdminJS serves internally.
+    // This must fully complete before the router is built — always await it.
     await admin.initialize();
-
-    // FIX 3: Explicitly serve .adminjs/ as a static route under the admin path.
-    // The browser requests /ADMIN_PATH/frontend/bundle.js — without this Express
-    // returns 404 and the panel renders as a blank white page.
-    if (IS_PRODUCTION && fs.existsSync(bundleDir)) {
-        app.use(`${ADMIN_PATH}/frontend`, express.static(bundleDir));
-        console.log(`📦 AdminJS bundle served from .adminjs/ at ${ADMIN_PATH}/frontend`);
-    }
+    console.log('✅ AdminJS initialized — bundle compiled');
 
     const cookiePwd = SESSION_SECRET.padEnd(32, '0').substring(0, 32);
 
-    // FIX 6: sameSite:'none' required when secure:true (HTTPS) so the browser
+    // FIX 3: sameSite:'none' required when secure:true (HTTPS) so the browser
     // keeps the cookie through AdminJS's login redirect flow on Render.
     const adminRouter = AdminJSExpress.buildAuthenticatedRouter(admin, {
         authenticate: async (email, password) => {
@@ -392,12 +403,12 @@ async function startServer() {
     await mongoose.connect(process.env.MONGODB_URI);
     console.log("Mongoose Connected ✅");
 
-    // FIX 7: AdminJS mounts FIRST — before body parsers and main session —
+    // FIX 4: AdminJS mounts FIRST — before body parsers and main session —
     // so its internal middleware runs clean without interference.
     await buildAndMountAdminJS();
 
     // ── Body Parsers (skip for AdminJS routes) ────────────────────────────────
-    // FIX 4: Use req.originalUrl (not req.path) — req.path can be stripped by
+    // FIX 5: Use req.originalUrl (not req.path) — req.path can be stripped by
     // nested routers and may not match ADMIN_PATH for admin subroutes.
     app.use((req, res, next) => {
         if (req.originalUrl.startsWith(ADMIN_PATH)) return next();
@@ -428,8 +439,8 @@ async function startServer() {
     app.use(flash);
 
     // ── CSRF Protection ───────────────────────────────────────────────────────
-    // FIX 4 (cont): req.originalUrl ensures all AdminJS paths are bypassed
-    // including internal API calls like /ADMIN_PATH/api/dashboard.
+    // req.originalUrl ensures all AdminJS paths are bypassed including
+    // internal API calls like /ADMIN_PATH/api/dashboard.
     app.use((req, res, next) => {
         if (
             req.originalUrl === "/api/upload" ||
@@ -458,7 +469,7 @@ async function startServer() {
  * SECURITY ROUTES
  * -------------------------- */
 
-// Safe IP helper (works even if you didn’t add global helper)
+// Safe IP helper (works even if you didn't add global helper)
 const getIp = (req) => (req.ips && req.ips.length > 0) ? req.ips[0] : (req.ip || '');
 
 // Reusable trap handler
@@ -518,13 +529,15 @@ const ADMIN_KEYWORDS = [
 ];
 
 app.use((req, res, next) => {
-    const path = req.originalUrl.toLowerCase();
+    // NOTE: using a local variable named `urlPath` to avoid shadowing
+    // the imported `path` module from Node core.
+    const urlPath = req.originalUrl.toLowerCase();
 
     // NEVER block your real AdminJS route
-    if (path.startsWith(ADMIN_PATH.toLowerCase())) return next();
+    if (urlPath.startsWith(ADMIN_PATH.toLowerCase())) return next();
 
     const isSuspicious = ADMIN_KEYWORDS.some(keyword =>
-        path.includes(`/${keyword}`)
+        urlPath.includes(`/${keyword}`)
     );
 
     if (isSuspicious) {
