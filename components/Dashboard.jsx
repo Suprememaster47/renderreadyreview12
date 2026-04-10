@@ -1,4 +1,17 @@
+/**
+ * components/Dashboard.jsx
+ *
+ * AdminJS v7 custom dashboard component.
+ *
+ * KEY FIX vs v6:
+ *   In AdminJS v7, window.AdminJS.ApiClient no longer exists.
+ *   You must import ApiClient directly from the 'adminjs' package.
+ *   This file is compiled by AdminJS's internal esbuild pipeline
+ *   (triggered by admin.initialize() in server.js), so the import
+ *   resolves correctly inside the bundle — do not change it.
+ */
 import React, { useEffect, useState, useRef } from 'react'
+import { ApiClient } from 'adminjs'
 
 // ── Count-up hook ─────────────────────────────────────────────────────────────
 
@@ -340,14 +353,20 @@ const Dashboard = () => {
   const [animStart, setAnimStart] = useState(false)
 
   useEffect(() => {
-    const api = new window.AdminJS.ApiClient()
+    // FIX: In AdminJS v7, window.AdminJS.ApiClient no longer exists.
+    // Import ApiClient directly from 'adminjs' (see top of file).
+    // AdminJS's esbuild pipeline resolves this correctly inside the bundle.
+    const api = new ApiClient()
     api.getDashboard()
       .then((response) => {
         setData(response.data)
         setLoading(false)
         setTimeout(() => setAnimStart(true), 120)
       })
-      .catch((err) => { console.error('Dashboard fetch error:', err); setLoading(false) })
+      .catch((err) => {
+        console.error('Dashboard fetch error:', err)
+        setLoading(false)
+      })
   }, [])
 
   const conversionRate = data.viewsAllTime > 0
