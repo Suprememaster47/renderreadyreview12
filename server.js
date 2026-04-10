@@ -236,47 +236,25 @@ async function buildAndMountAdminJS() {
     const ADMIN_EMAIL    = (process.env.ADMIN_EMAIL    || '').trim();
     const ADMIN_PASS     = (process.env.ADMIN_PASSWORD || '').trim();
 
-    // Step 1: Create /tmp/adminjs — guaranteed writable on Render at runtime.
-    // This must happen before new AdminJS() so bundleDir exists when Webpack runs.
-    fs.mkdirSync(BUNDLE_DIR, { recursive: true });
-    console.log(`📁 AdminJS bundle directory ready: ${BUNDLE_DIR}`);
-
     const admin = new AdminJS({
         resources: [Review, Response, Contact, Alert, Analytics, LastLoggedIn],
         rootPath: ADMIN_PATH,
         loginPath: `${ADMIN_PATH}/login`,
         logoutPath: `${ADMIN_PATH}/logout`,
         componentLoader,
-
-        // Step 3: Force 'development' regardless of global NODE_ENV.
-        // AdminJS's ComponentLoader checks this internal env flag to decide
-        // whether to run Webpack. When it sees 'production' it skips bundling
-        // entirely — components.bundle.js is never written — causing the 404.
-        // Forcing 'development' here makes it bundle on every startup (~5–10s).
-        env: { NODE_ENV: 'development' },
-
-        // Step 2: Tell AdminJS exactly where to write components.bundle.js.
-        // This MUST be the directory — AdminJS appends the filename itself.
-        // Must match the express.static directory registered in Step 4 below.
-        bundleDir: BUNDLE_DIR,
-
         branding: { companyName: 'Hydro Sweep Services', withMadeWithLove: false },
         dashboard: {
             component: Components.Dashboard,
             handler: async () => {
                 const now = new Date();
-
                 const startOfToday = new Date(now);
                 startOfToday.setHours(0, 0, 0, 0);
-
                 const start7Days = new Date(now);
                 start7Days.setDate(now.getDate() - 7);
                 start7Days.setHours(0, 0, 0, 0);
-
                 const start30Days = new Date(now);
                 start30Days.setDate(now.getDate() - 30);
                 start30Days.setHours(0, 0, 0, 0);
-
                 const start24Hours = new Date(now.getTime() - 24 * 60 * 60 * 1000);
 
                 const sourceAggregation = (matchStage) => Analytics.aggregate([
@@ -290,20 +268,10 @@ async function buildAndMountAdminJS() {
                 ]);
 
                 const [
-                    viewsToday,
-                    views7Days,
-                    views30Days,
-                    viewsAllTime,
-                    leadsCount,
-                    botAlerts24h,
-                    recentContacts,
-                    serviceBreakdown,
-                    sourcesToday,
-                    sources7Days,
-                    sources30Days,
-                    sourcesAllTime,
-                    viewsByPath,
-                    lastLogin,
+                    viewsToday, views7Days, views30Days, viewsAllTime,
+                    leadsCount, botAlerts24h, recentContacts, serviceBreakdown,
+                    sourcesToday, sources7Days, sources30Days, sourcesAllTime,
+                    viewsByPath, lastLogin,
                 ] = await Promise.all([
                     Analytics.countDocuments({ timestamp: { $gte: startOfToday } }),
                     Analytics.countDocuments({ timestamp: { $gte: start7Days } }),
@@ -311,11 +279,7 @@ async function buildAndMountAdminJS() {
                     Analytics.countDocuments(),
                     Contact.countDocuments(),
                     Alert.countDocuments({ timestamp: { $gte: start24Hours } }),
-                    Contact.find()
-                        .sort({ createdAt: -1 })
-                        .limit(5)
-                        .select('fullName email phone message createdAt')
-                        .lean(),
+                    Contact.find().sort({ createdAt: -1 }).limit(5).select('fullName email phone message createdAt').lean(),
                     Contact.aggregate([
                         { $group: { _id: '$message', count: { $sum: 1 } } },
                         { $sort: { count: -1 } },
@@ -335,17 +299,11 @@ async function buildAndMountAdminJS() {
                 };
 
                 return {
-                    viewsToday,
-                    views7Days,
-                    views30Days,
-                    viewsAllTime,
-                    leadsCount,
-                    botAlerts24h,
-                    recentContacts,
-                    serviceBreakdown,
-                    sourcesToday:   normaliseSources(sourcesToday),
-                    sources7Days:   normaliseSources(sources7Days),
-                    sources30Days:  normaliseSources(sources30Days),
+                    viewsToday, views7Days, views30Days, viewsAllTime,
+                    leadsCount, botAlerts24h, recentContacts, serviceBreakdown,
+                    sourcesToday: normaliseSources(sourcesToday),
+                    sources7Days: normaliseSources(sources7Days),
+                    sources30Days: normaliseSources(sources30Days),
                     sourcesAllTime: normaliseSources(sourcesAllTime),
                     viewsByPath,
                     lastLogin: lastLogin ? lastLogin.loginAt : null,
@@ -354,28 +312,13 @@ async function buildAndMountAdminJS() {
         },
     });
 
-    // Runs Webpack. Because env.NODE_ENV='development' above, AdminJS writes
-    // components.bundle.js into BUNDLE_DIR (/tmp/adminjs) before continuing.
     await admin.initialize();
-    console.log(`✅ AdminJS bundle written to ${BUNDLE_DIR}`);
-
-    // Step 4: THE CRITICAL ROUTE FIX.
-    //
-    // AdminJS generates asset URLs relative to rootPath + '/frontend/assets/':
-    //   /electric-puffin-vault-12/frontend/assets/components.bundle.js
-    //
-    // The express.static mount point MUST end in /frontend/assets so that
-    // Express strips that prefix and resolves the remaining filename
-    // (components.bundle.js) against BUNDLE_DIR (/tmp/adminjs).
-    //
-    // Previous attempts used `${ADMIN_PATH}/frontend` which left '/assets'
-    // unstripped — Express looked for /tmp/adminjs/assets/components.bundle.js
-    // (doesn't exist), fell through, and the 404 handler returned HTML,
-    // triggering the "MIME type 'text/html'" browser error.
-    //
-    // This single line is what makes the custom path work:
-    app.use(`${ADMIN_PATH}/frontend/assets`, express.static(BUNDLE_DIR));
-    console.log(`📦 Bundle route: ${ADMIN_PATH}/frontend/assets → ${BUNDLE_DIR}`);
+    
+    // THE FIX: If we are in the Build Phase, stop here so Render saves the files.
+    if (process.env.BUILD_ADMINJS === 'true') {
+        console.log('✅ AdminJS bundle pre-built successfully.');
+        process.exit(0);
+    }
 
     const cookiePwd = SESSION_SECRET.padEnd(32, '0').substring(0, 32);
 
@@ -383,11 +326,7 @@ async function buildAndMountAdminJS() {
         authenticate: async (email, password) => {
             if (email?.trim() === ADMIN_EMAIL && password?.trim() === ADMIN_PASS) {
                 try {
-                    await LastLoggedIn.findOneAndUpdate(
-                        {},
-                        { email, loginAt: new Date() },
-                        { upsert: true, new: true }
-                    );
+                    await LastLoggedIn.findOneAndUpdate({}, { email, loginAt: new Date() }, { upsert: true, new: true });
                 } catch (e) {
                     console.error('Failed to save last login:', e);
                 }
@@ -404,8 +343,6 @@ async function buildAndMountAdminJS() {
         name: 'adminjs-sid',
         cookie: {
             httpOnly: true,
-            // sameSite:'none' required on HTTPS — the browser drops the cookie
-            // during AdminJS's login redirect flow without this on Render.
             sameSite: secureTransfer ? 'none' : 'lax',
             secure: secureTransfer,
             maxAge: 86400000,
@@ -413,39 +350,8 @@ async function buildAndMountAdminJS() {
         store: MongoStore.create({ mongoUrl: process.env.MONGODB_URI }),
     });
 
-    // Mount IP whitelist THEN adminRouter — order matters
     app.use(ADMIN_PATH, ipWhitelist, adminRouter);
-    console.log(`✅ AdminJS mounted at ${ADMIN_PATH}`);
 }
-
-/** --------------------------
- * MAIN APP INITIALIZATION
- * -------------------------- */
-async function startServer() {
-    await mongoose.connect(process.env.MONGODB_URI);
-    console.log("Mongoose Connected ✅");
-
-    // AdminJS mounts FIRST — before body parsers and main session middleware —
-    // so its internal request handling (login POST, API calls, asset serving)
-    // runs without interference from the main app stack.
-    await buildAndMountAdminJS();
-
-    // ── Body Parsers (skip for AdminJS routes) ────────────────────────────────
-    // Use req.originalUrl — req.path can be stripped by nested routers and may
-    // not contain the ADMIN_PATH prefix for subroutes.
-    app.use((req, res, next) => {
-        if (req.originalUrl.startsWith(ADMIN_PATH)) return next();
-        express.json()(req, res, (err) => {
-            if (err) return next(err);
-            express.urlencoded({ extended: true })(req, res, (err) => {
-                if (err) return next(err);
-                if (req.body) mongoSanitize.sanitize(req.body);
-                if (req.query) mongoSanitize.sanitize(req.query);
-                if (req.params) mongoSanitize.sanitize(req.params);
-                next();
-            });
-        });
-    });
 
     // ── Global App Session ────────────────────────────────────────────────────
     app.use(session({
