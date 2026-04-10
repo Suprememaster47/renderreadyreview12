@@ -454,15 +454,85 @@ async function startServer() {
     app.use("/js/lib", express.static(path.join(__dirname, "node_modules/chart.js/dist")));
     app.locals.GOOGLE_ANALYTICS_ID = process.env.GOOGLE_ANALYTICS_ID || null;
 
-    /** --------------------------
-     * SECURITY ROUTES
-     * -------------------------- */
-    app.all(['/admin', '/admin/'], async (req, res) => {
-        try {
-            await Alert.create({ ip: req.ip, userAgent: req.headers['user-agent'], pathAttempted: req.originalUrl });
-        } catch (e) {}
-        res.status(403).send('Forbidden');
-    });
+   /** --------------------------
+ * SECURITY ROUTES
+ * -------------------------- */
+
+// Safe IP helper (works even if you didn’t add global helper)
+const getIp = (req) => (req.ips && req.ips.length > 0) ? req.ips[0] : (req.ip || '');
+
+// Reusable trap handler
+async function trapHandler(req, res) {
+    try {
+        await Alert.create({
+            ip: getIp(req),
+            userAgent: req.headers['user-agent'],
+            pathAttempted: req.originalUrl
+        });
+    } catch (e) {}
+
+    return res.status(404).send('Not Found'); // stealth
+}
+
+// ── 1. Exact admin trap routes ───────────────────────────────────────────────
+const ADMIN_TRAP_ROUTES = [
+    '/admin', '/admin/', '/admin.php',
+    '/admin/login', '/admin/login.php',
+    '/admin/dashboard',
+    '/administrator', '/administrator/',
+    '/adminpanel', '/admin-panel',
+    '/backend', '/controlpanel',
+    '/cpanel', '/cpanel/login',
+    '/dashboard', '/manage',
+    '/management', '/moderator',
+];
+
+app.all(ADMIN_TRAP_ROUTES, (req, res) => {
+    if (req.originalUrl.startsWith(ADMIN_PATH)) return res.status(404).end();
+    return trapHandler(req, res);
+});
+
+// ── 2. Regex pattern traps (catches variations) ─────────────────────────────
+const ADMIN_REGEX_TRAPS = [
+    /^\/admin.*/i,
+    /^\/administrator.*/i,
+    /^\/dashboard.*/i,
+    /^\/cpanel.*/i,
+    /^\/backend.*/i,
+    /^\/manage.*/i,
+];
+
+app.all(ADMIN_REGEX_TRAPS, (req, res) => {
+    if (req.originalUrl.startsWith(ADMIN_PATH)) return res.status(404).end();
+    return trapHandler(req, res);
+});
+
+// ── 3. Smart keyword detection (future-proof) ───────────────────────────────
+const ADMIN_KEYWORDS = [
+    'admin',
+    'administrator',
+    'dashboard',
+    'cpanel',
+    'backend',
+    'manage'
+];
+
+app.use((req, res, next) => {
+    const path = req.originalUrl.toLowerCase();
+
+    // NEVER block your real AdminJS route
+    if (path.startsWith(ADMIN_PATH.toLowerCase())) return next();
+
+    const isSuspicious = ADMIN_KEYWORDS.some(keyword =>
+        path.includes(`/${keyword}`)
+    );
+
+    if (isSuspicious) {
+        return trapHandler(req, res);
+    }
+
+    next();
+});
 
     // ── trackViews: ONE analytics record per unique visitor session ───────────
     const trackViews = async (req, res, next) => {
