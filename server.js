@@ -1,6 +1,6 @@
 /**
  * ---------------------------------------------------------------------
- * MERGED SERVER.JS - PRODUCTION READY (RENDER BUILD FIX)
+ * MERGED SERVER.JS - PRODUCTION READY (FIXED SANITIZE + RENDER BUNDLE)
  * ---------------------------------------------------------------------
  */
 import 'dotenv/config';
@@ -58,12 +58,7 @@ const { morganLogger } = require("./config/morgan.cjs");
 const IS_PRODUCTION  = process.env.NODE_ENV === 'production';
 const secureTransfer = IS_PRODUCTION || process.env.BASE_URL?.startsWith("https") || false;
 const ADMIN_PATH     = `/${(process.env.ADMIN_PATH || 'electric-puffin-vault-12').trim().replace(/^\//, '')}`;
-
-// IMPORTANT: On Render, use a relative path for the build phase so it stays in the repo
-// but use /tmp at runtime if the disk is read-only.
-const BUNDLE_DIR = process.env.BUILD_ADMINJS === 'true' 
-    ? path.join(__dirname, '.adminjs-build') 
-    : '/tmp/adminjs';
+const BUNDLE_DIR     = '/tmp/adminjs';
 
 /** --------------------------
  * MONGOOSE MODELS
@@ -116,14 +111,6 @@ const n8nPost = (payload) => axios.post(process.env.N8N_WEBHOOK_URL, payload, {
     headers: { "x-hydro-sweep-auth": process.env.N8N_AUTH_SECRET || "" }, timeout: 25000
 });
 
-const ipWhitelist = (req, res, next) => {
-    const allowed = (process.env.ALLOWED_IP || '').trim();
-    if (!allowed) return next();
-    const clientIp = req.ips?.[0] || req.ip || '';
-    if (['::1', '127.0.0.1'].includes(clientIp) || clientIp === allowed) return next();
-    res.status(404).send('Not Found');
-};
-
 /** --------------------------
  * EXPRESS APP SETUP
  * -------------------------- */
@@ -137,21 +124,21 @@ app.set("trust proxy", 1);
 app.use(morganLogger());
 app.use(compression());
 app.disable("x-powered-by");
+
+// Body Parsers must come BEFORE sanitization
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
-app.use(mongoSanitize());
 
 /** --------------------------
  * BOOTSTRAP FUNCTION
  * -------------------------- */
 async function startServer() {
-    // 1. Database Connection
     await mongoose.connect(process.env.MONGODB_URI);
     console.log("MongoDB Connected ✅");
 
-    // 2. AdminJS Setup
     const SESSION_SECRET = (process.env.SESSION_SECRET || 'hydro-sweep-admin-secret-32-chars').trim();
-    
+
+    // ── AdminJS Setup ────────────────────────────────────────────────────────
     const adminOptions = {
         resources: [Review, Response, Contact, Alert, Analytics, LastLoggedIn],
         rootPath: ADMIN_PATH,
@@ -164,37 +151,35 @@ async function startServer() {
             handler: async () => {
                 const now = new Date();
                 const startOfToday = new Date(now).setHours(0,0,0,0);
-                const [viewsToday, viewsAllTime, leadsCount, recentContacts, lastLogin] = await Promise.all([
+                const [viewsToday, viewsAllTime, leadsCount, lastLogin] = await Promise.all([
                     Analytics.countDocuments({ timestamp: { $gte: startOfToday } }),
                     Analytics.countDocuments(),
                     Contact.countDocuments(),
-                    Contact.find().sort({ createdAt: -1 }).limit(5).lean(),
                     LastLoggedIn.findOne().sort({ loginAt: -1 }).lean(),
                 ]);
-                return { viewsToday, viewsAllTime, leadsCount, recentContacts, lastLogin: lastLogin?.loginAt };
+                return { viewsToday, viewsAllTime, leadsCount, lastLogin: lastLogin?.loginAt };
             }
         },
     };
 
-    // Force AdminJS to bundle even in production mode during build
-    if (process.env.BUILD_ADMINJS === 'true') {
-        adminOptions.env = { NODE_ENV: 'development' };
+    // EPHEMERAL FILESYSTEM FIX: Always bundle to /tmp in production
+    if (IS_PRODUCTION) {
+        adminOptions.env = { NODE_ENV: 'development' }; 
         adminOptions.bundler = { bundleDir: BUNDLE_DIR };
     }
 
     const admin = new AdminJS(adminOptions);
 
-    // CRITICAL: Pre-bundle logic
     if (process.env.BUILD_ADMINJS === 'true') {
         console.log("🛠️  Generating AdminJS bundle for Render...");
         await admin.initialize();
         console.log("✅ AdminJS bundle generated. Exiting build process.");
-        process.exit(0); 
+        process.exit(0);
     }
 
     await admin.initialize();
     
-    // Serve the bundled assets
+    // Serve assets from the generated bundle directory
     app.use(`${ADMIN_PATH}/frontend/assets`, express.static(BUNDLE_DIR));
 
     const adminRouter = AdminJSExpress.buildAuthenticatedRouter(admin, {
@@ -213,9 +198,13 @@ async function startServer() {
         store: MongoStore.create({ mongoUrl: process.env.MONGODB_URI }),
     });
 
-    app.use(ADMIN_PATH, ipWhitelist, adminRouter);
+    app.use(ADMIN_PATH, adminRouter);
 
-    // 3. Main App Session & Passport
+    // ── Main App Middleware ──────────────────────────────────────────────────
+    
+    // MOVED: Sanitize AFTER AdminJS and body parsing to avoid "getter only" errors
+    app.use(mongoSanitize());
+
     app.use(session({
         resave: true, saveUninitialized: false, secret: SESSION_SECRET,
         name: "startercookie", cookie: { maxAge: 1209600000, secure: secureTransfer },
@@ -226,7 +215,7 @@ async function startServer() {
     app.use(passport.session());
     app.use(flash);
 
-    // 4. CSRF & Security (Bypass Admin and specific APIs)
+    // CSRF bypass logic
     app.use((req, res, next) => {
         const bypass = ["/api/upload", "/ai/togetherai-camera", "/send-to-n8n", ADMIN_PATH];
         if (bypass.some(p => req.originalUrl.startsWith(p))) return next();
@@ -239,7 +228,7 @@ async function startServer() {
         next();
     });
 
-    // 5. Analytics & Public Routes
+    // ── Analytics & Routes ───────────────────────────────────────────────────
     const trackViews = async (req, res, next) => {
         if (!req.session.viewTracked) {
             req.session.viewTracked = true;
@@ -256,7 +245,7 @@ async function startServer() {
         });
     });
 
-    // ... All other routes (Auth, Reviews, API) ...
+    // Standard Routes
     app.get("/login", userController.getLogin);
     app.post("/login", userController.postLogin);
     app.get("/logout", userController.logout);
@@ -268,14 +257,17 @@ async function startServer() {
     });
 
     app.post("/send-to-n8n", async (req, res) => {
-        const resp = await n8nPost(req.body);
-        res.json({ reply: resp.data.reply || resp.data });
+        try {
+            const resp = await n8nPost(req.body);
+            res.json({ reply: resp.data.reply || resp.data });
+        } catch (e) {
+            res.status(500).json({ error: "Communication Error" });
+        }
     });
 
     app.use("/", express.static(path.join(__dirname, "public")));
     app.use((req, res) => res.status(404).send("Page Not Found"));
 
-    // 6. Start Listening
     const server = app.listen(app.get("port"), () => {
         console.log(`🚀 Server running on port ${app.get("port")}`);
     });
@@ -283,9 +275,13 @@ async function startServer() {
     const wss = new WebSocketServer({ server });
     wss.on("connection", (ws) => {
         ws.on("message", async (raw) => {
-            const data = JSON.parse(raw.toString());
-            const resp = await n8nPost(data);
-            ws.send(JSON.stringify({ reply: resp.data.reply || resp.data }));
+            try {
+                const data = JSON.parse(raw.toString());
+                const resp = await n8nPost(data);
+                ws.send(JSON.stringify({ reply: resp.data.reply || resp.data }));
+            } catch (e) {
+                ws.send(JSON.stringify({ error: "Internal Error" }));
+            }
         });
     });
 }
