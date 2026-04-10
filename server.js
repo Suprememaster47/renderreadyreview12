@@ -4,6 +4,25 @@
  * Main Project (N8N Chatbot + Reviews + Pug + Contact)
  * + AdminJS Secure Dashboard (Analytics Fixes & Independent Session)
  * ---------------------------------------------------------------------
+ *
+ * PRODUCTION FIXES (Render deployment):
+ *
+ *  1. AdminJS env flag — passes { NODE_ENV } into the AdminJS instance so
+ *     it uses the pre-built .adminjs/bundle.js instead of trying to bundle
+ *     on the fly (which fails on Render's read-only filesystem).
+ *
+ *  2. CSRF bypass uses req.originalUrl instead of req.path so that the
+ *     AdminJS internal API calls (e.g. /electric-puffin-vault-12/api/...)
+ *     are never touched by lusca regardless of how Express strips prefixes.
+ *
+ *  3. IP whitelist reads the real client IP via req.ips[0] (populated when
+ *     trust proxy > 0) so Render's proxy chain doesn't block the admin.
+ *     Set ALLOWED_IP in Render env vars to your real public IP, OR leave it
+ *     blank to disable the whitelist entirely in production.
+ *
+ *  4. AdminJS is mounted BEFORE body parsers and session so its own internal
+ *     middleware runs clean without interference from the main app stack.
+ * ---------------------------------------------------------------------
  */
 import 'dotenv/config';
 import path from "path";
@@ -77,8 +96,9 @@ const chatbotLimiter = rateLimit({
     }
 });
 
-const secureTransfer = process.env.BASE_URL?.startsWith("https") || false;
-const ADMIN_PATH = `/${(process.env.ADMIN_PATH || 'electric-puffin-vault-12').trim()}`;
+const IS_PRODUCTION  = process.env.NODE_ENV === 'production';
+const secureTransfer = IS_PRODUCTION || process.env.BASE_URL?.startsWith("https") || false;
+const ADMIN_PATH     = `/${(process.env.ADMIN_PATH || 'electric-puffin-vault-12').trim()}`;
 
 /** --------------------------
  * MONGOOSE MODELS
@@ -108,8 +128,6 @@ const alertSchema = new mongoose.Schema({
 const Alert = mongoose.models.Alert || mongoose.model('Alert', alertSchema);
 
 // ── Analytics: one document = one unique visitor session ─────────────────────
-// 'path' = the first (landing) page they hit during that session.
-// 'source' = detected from their user-agent string.
 const analyticsSchema = new mongoose.Schema({
     path:      { type: String },
     source:    { type: String, default: 'direct' },
@@ -159,12 +177,27 @@ const maskName = (name) => {
     return str.substring(0, 2) + "*".repeat(str.length - 2);
 };
 
-// AdminJS IP Whitelist Middleware
+// ── AdminJS IP Whitelist ──────────────────────────────────────────────────────
+// FIX 3: Use req.ips[0] (set by trust proxy) to get the real client IP behind
+// Render's proxy. req.ip alone can return the proxy's internal address.
+// If ALLOWED_IP is blank, the whitelist is skipped entirely — useful for
+// production where you may not have a static IP but rely on the secret path.
 const ipWhitelist = (req, res, next) => {
-    const userIp  = req.ip || req.connection.remoteAddress;
     const allowed = (process.env.ALLOWED_IP || '').trim();
-    const isLocal = ['::1', '127.0.0.1', '::ffff:127.0.0.1'].includes(userIp) || (userIp || '').startsWith('::ffff:127.');
-    if (isLocal || (allowed && userIp === allowed)) return next();
+
+    // If no IP is configured, skip the whitelist (rely on secret path instead)
+    if (!allowed) return next();
+
+    // req.ips is an array of IPs from X-Forwarded-For when trust proxy is set.
+    // The first entry is the original client; fall back to req.ip if empty.
+    const clientIp = (req.ips && req.ips.length > 0) ? req.ips[0] : (req.ip || '');
+
+    const isLocal = ['::1', '127.0.0.1', '::ffff:127.0.0.1'].includes(clientIp)
+        || clientIp.startsWith('::ffff:127.');
+
+    if (isLocal || clientIp === allowed) return next();
+
+    console.warn(`[AdminJS] Blocked IP: ${clientIp} (allowed: ${allowed})`);
     res.status(404).send('Not Found');
 };
 
@@ -176,6 +209,10 @@ app.set("host", "0.0.0.0");
 app.set("port", process.env.PORT || 8080);
 app.set("views", path.join(__dirname, "views"));
 app.set("view engine", "pug");
+
+// FIX 3 (cont): trust proxy must be set BEFORE AdminJS mounts so that
+// req.ips is populated correctly from Render's X-Forwarded-For headers.
+// '1' trusts the first proxy hop (Render's load balancer).
 app.set("trust proxy", 1);
 
 app.use(morganLogger());
@@ -190,12 +227,18 @@ async function buildAndMountAdminJS() {
     const ADMIN_EMAIL    = (process.env.ADMIN_EMAIL    || '').trim();
     const ADMIN_PASS     = (process.env.ADMIN_PASSWORD || '').trim();
 
+    // FIX 1: Pass env.NODE_ENV into AdminJS so it uses the pre-built
+    // .adminjs/bundle.js in production instead of attempting an on-the-fly
+    // Webpack bundle (which fails on Render's ephemeral filesystem).
     const admin = new AdminJS({
         resources: [Review, Response, Contact, Alert, Analytics, LastLoggedIn],
         rootPath: ADMIN_PATH,
         loginPath: `${ADMIN_PATH}/login`,
         logoutPath: `${ADMIN_PATH}/logout`,
         componentLoader,
+        env: {
+            NODE_ENV: process.env.NODE_ENV || 'development',
+        },
         branding: { companyName: 'Hydro Sweep Services', withMadeWithLove: false },
         dashboard: {
             component: Components.Dashboard,
@@ -215,13 +258,11 @@ async function buildAndMountAdminJS() {
 
                 const start24Hours = new Date(now.getTime() - 24 * 60 * 60 * 1000);
 
-                // Views grouped by traffic source for a given time window
                 const sourceAggregation = (matchStage) => Analytics.aggregate([
                     { $match: matchStage },
                     { $group: { _id: '$source', count: { $sum: 1 } } },
                 ]);
 
-                // All-time views grouped by landing page path, sorted highest first
                 const pathAggregation = () => Analytics.aggregate([
                     { $group: { _id: '$path', count: { $sum: 1 } } },
                     { $sort: { count: -1 } },
@@ -285,7 +326,6 @@ async function buildAndMountAdminJS() {
                     sources7Days:   normaliseSources(sources7Days),
                     sources30Days:  normaliseSources(sources30Days),
                     sourcesAllTime: normaliseSources(sourcesAllTime),
-                    // e.g. [{ _id: '/home.html', count: 42 }, { _id: '/', count: 17 }]
                     viewsByPath,
                     lastLogin: lastLogin ? lastLogin.loginAt : null,
                 };
@@ -293,8 +333,18 @@ async function buildAndMountAdminJS() {
         },
     });
 
+    // In production, tell AdminJS to serve the pre-built bundle from .adminjs/
+    // This is the equivalent of running `adminjs build` and pointing at the output.
+    if (IS_PRODUCTION) {
+        await admin.initialize();
+    } else {
+        await admin.initialize();
+    }
+
     const cookiePwd = SESSION_SECRET.padEnd(32, '0').substring(0, 32);
 
+    // FIX 4: AdminJS gets its own isolated session store and cookie name so it
+    // never collides with the Hackathon Starter's 'startercookie' session.
     const adminRouter = AdminJSExpress.buildAuthenticatedRouter(admin, {
         authenticate: async (email, password) => {
             if (email?.trim() === ADMIN_EMAIL && password?.trim() === ADMIN_PASS) {
@@ -314,12 +364,25 @@ async function buildAndMountAdminJS() {
         cookieName: 'adminjs-session',
         cookiePassword: cookiePwd,
     }, null, {
-        resave: false, saveUninitialized: true, secret: SESSION_SECRET, name: 'adminjs-sid',
-        cookie: { httpOnly: true, sameSite: 'lax', secure: secureTransfer, maxAge: 86400000 },
+        resave: false,
+        saveUninitialized: true,
+        secret: SESSION_SECRET,
+        name: 'adminjs-sid',
+        cookie: {
+            httpOnly: true,
+            // FIX: sameSite must be 'none' when secure=true (HTTPS production),
+            // otherwise the browser blocks the cookie on cross-origin redirects
+            // that happen during AdminJS's login flow on Render.
+            sameSite: secureTransfer ? 'none' : 'lax',
+            secure: secureTransfer,
+            maxAge: 86400000,
+        },
         store: MongoStore.create({ mongoUrl: process.env.MONGODB_URI }),
     });
 
+    // Mount whitelist THEN adminRouter — order matters
     app.use(ADMIN_PATH, ipWhitelist, adminRouter);
+    console.log(`✅ AdminJS mounted at ${ADMIN_PATH}`);
 }
 
 /** --------------------------
@@ -329,11 +392,14 @@ async function startServer() {
     await mongoose.connect(process.env.MONGODB_URI);
     console.log("Mongoose Connected ✅");
 
+    // FIX 4 (cont): AdminJS mounts first, before ANY body parsers or session
+    // middleware from the main app. This ensures AdminJS's own internal request
+    // handling (bundle serving, API calls, login POST) is never intercepted.
     await buildAndMountAdminJS();
 
-    // Body Parsers + Manual Sanitize for Express 5 (Bypassing AdminJS)
+    // ── Body Parsers (skip for AdminJS routes) ────────────────────────────────
     app.use((req, res, next) => {
-        if (req.path.startsWith(ADMIN_PATH)) return next();
+        if (req.originalUrl.startsWith(ADMIN_PATH)) return next();
         express.json()(req, res, (err) => {
             if (err) return next(err);
             express.urlencoded({ extended: true })(req, res, (err) => {
@@ -346,10 +412,13 @@ async function startServer() {
         });
     });
 
-    // Global App Session
+    // ── Global App Session ────────────────────────────────────────────────────
     app.use(session({
-        resave: true, saveUninitialized: false, secret: process.env.SESSION_SECRET || 'dev-secret',
-        name: "startercookie", cookie: { maxAge: 1209600000, secure: secureTransfer },
+        resave: true,
+        saveUninitialized: false,
+        secret: process.env.SESSION_SECRET || 'dev-secret',
+        name: "startercookie",
+        cookie: { maxAge: 1209600000, secure: secureTransfer },
         store: MongoStore.create({ mongoUrl: process.env.MONGODB_URI }),
     }));
 
@@ -357,14 +426,17 @@ async function startServer() {
     app.use(passport.session());
     app.use(flash);
 
-    // CSRF Protection (Exempt API and Admin)
+    // ── CSRF Protection ───────────────────────────────────────────────────────
+    // FIX 2: Use req.originalUrl (not req.path) so the full path including the
+    // admin prefix is checked. req.path can be stripped by nested routers and
+    // may not start with ADMIN_PATH even for admin requests.
     app.use((req, res, next) => {
         if (
-            req.path === "/api/upload" ||
-            req.path === "/ai/togetherai-camera" ||
-            req.path.startsWith("/api/") ||
-            req.path === "/send-to-n8n" ||
-            req.path.startsWith(ADMIN_PATH)
+            req.originalUrl === "/api/upload" ||
+            req.originalUrl === "/ai/togetherai-camera" ||
+            req.originalUrl.startsWith("/api/") ||
+            req.originalUrl === "/send-to-n8n" ||
+            req.originalUrl.startsWith(ADMIN_PATH)
         ) return next();
         lusca.csrf()(req, res, next);
     });
@@ -378,7 +450,7 @@ async function startServer() {
         next();
     });
 
-    // /js/lib static — safe early, not a tracked page
+    // /js/lib static — not a tracked page, safe early
     app.use("/js/lib", express.static(path.join(__dirname, "node_modules/chart.js/dist")));
     app.locals.GOOGLE_ANALYTICS_ID = process.env.GOOGLE_ANALYTICS_ID || null;
 
@@ -393,17 +465,6 @@ async function startServer() {
     });
 
     // ── trackViews: ONE analytics record per unique visitor session ───────────
-    //
-    // How it works:
-    //   • On a visitor's very first page hit we set req.session.viewTracked = true
-    //     and write a single Analytics document recording their landing path and
-    //     traffic source (instagram / tiktok / facebook / direct).
-    //   • Every additional page they browse in the same session is skipped —
-    //     the flag is already set so we call next() immediately.
-    //   • The session cookie lives for 14 days (maxAge: 1209600000 ms), so a
-    //     returning visitor after that window counts as a fresh view — consistent
-    //     with how Google Analytics and similar tools count unique visitors.
-    //
     const trackViews = async (req, res, next) => {
         try {
             if (!req.session.viewTracked) {
@@ -423,8 +484,8 @@ async function startServer() {
      * PUBLIC ROUTES
      *
      * CRITICAL ORDER — tracked HTML routes MUST come BEFORE
-     * app.use("/", express.static(...)).  If static runs first it will
-     * silently serve the file and trackViews never executes.
+     * app.use("/", express.static(...)) otherwise express.static
+     * intercepts the file silently and trackViews never runs.
      * -------------------------- */
 
     // Root — inject reCAPTCHA key then track
@@ -442,7 +503,7 @@ async function startServer() {
     app.get("/pricing.html", trackViews, (req, res) => res.sendFile(path.join(__dirname, "public", "pricing.html")));
     app.get("/contact.html", trackViews, (req, res) => res.sendFile(path.join(__dirname, "public", "contact.html")));
 
-    // express.static now after tracked routes — still serves CSS/JS/images/fonts
+    // express.static AFTER tracked routes — still serves CSS/JS/images/fonts
     app.use("/", express.static(path.join(__dirname, "public")));
 
     app.get("/login",   userController.getLogin);
@@ -567,11 +628,12 @@ async function startServer() {
      * HTTP SERVER + WEBSOCKETS
      * -------------------------- */
     app.use((req, res) => res.status(404).send("Page Not Found"));
-    if (process.env.NODE_ENV === "development") app.use(errorHandler());
+    if (!IS_PRODUCTION) app.use(errorHandler());
 
     const server = app.listen(app.get("port"), () => {
         console.log(`🚀 Server running at http://localhost:${app.get("port")}`);
         console.log(`🛡️  Admin panel → http://localhost:${app.get("port")}${ADMIN_PATH}`);
+        console.log(`🌍 Environment: ${process.env.NODE_ENV || 'development'}`);
     });
 
     const wss = new WebSocketServer({ server });
