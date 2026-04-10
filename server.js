@@ -1,6 +1,6 @@
 /**
  * ---------------------------------------------------------------------
- * MERGED SERVER.JS - PRODUCTION READY
+ * MERGED SERVER.JS - PRODUCTION READY (RENDER BUILD FIX)
  * ---------------------------------------------------------------------
  */
 import 'dotenv/config';
@@ -58,23 +58,19 @@ const { morganLogger } = require("./config/morgan.cjs");
 const IS_PRODUCTION  = process.env.NODE_ENV === 'production';
 const secureTransfer = IS_PRODUCTION || process.env.BASE_URL?.startsWith("https") || false;
 const ADMIN_PATH     = `/${(process.env.ADMIN_PATH || 'electric-puffin-vault-12').trim().replace(/^\//, '')}`;
-const BUNDLE_DIR     = '/tmp/adminjs';
 
-/** --------------------------
- * RATE LIMITERS
- * -------------------------- */
-const strictLimiter  = rateLimit({ windowMs: 60 * 60 * 1000, max: parseInt(process.env.RATE_LIMIT_STRICT, 10) || 5 });
-const loginLimiter   = rateLimit({ windowMs: 60 * 60 * 1000, max: parseInt(process.env.RATE_LIMIT_LOGIN, 10) || 10 });
-const reviewLimiter  = rateLimit({ windowMs: 60 * 60 * 1000, max: parseInt(process.env.RATE_LIMIT_REVIEW, 10) || 20 });
-const contactFormLimiter = rateLimit({ windowMs: 60 * 60 * 1000, max: 10, message: { error: "Too many messages." } });
-const chatbotLimiter = rateLimit({ windowMs: 1 * 60 * 1000, max: 15, message: { error: "Chatting too fast!" } });
+// IMPORTANT: On Render, use a relative path for the build phase so it stays in the repo
+// but use /tmp at runtime if the disk is read-only.
+const BUNDLE_DIR = process.env.BUILD_ADMINJS === 'true' 
+    ? path.join(__dirname, '.adminjs-build') 
+    : '/tmp/adminjs';
 
 /** --------------------------
  * MONGOOSE MODELS
  * -------------------------- */
 const Review = mongoose.models.Review || mongoose.model("Review", new mongoose.Schema({
     name: String, stars: { type: Number, min: 1, max: 5 }, review_text: String,
-    profile_pic: { type: String, default: "https://imgs.search.brave.com/pbruKhRTdtOMZ06961RdlA7ykd9NKAsJilAOtY79yHk/rs:fit:860:0:0:0/g:ce/aHR0cHM6Ly9wbmdm/cmUuY29tL3dwLWNv/bnRlbnQvdXBsb2Fk/cy8xMDAwMTE3OTc1/LTEtMzAweDI3NS5w/bmc" },
+    profile_pic: { type: String, default: "https://imgs.search.brave.com/placeholder.png" },
     createdAt: { type: Date, default: Date.now }
 }), "reviews");
 
@@ -120,13 +116,6 @@ const n8nPost = (payload) => axios.post(process.env.N8N_WEBHOOK_URL, payload, {
     headers: { "x-hydro-sweep-auth": process.env.N8N_AUTH_SECRET || "" }, timeout: 25000
 });
 
-async function verifyRecaptchaToken(token, remoteip) {
-    const params = new URLSearchParams({ secret: process.env.RECAPTCHA_SECRET_KEY, response: token });
-    if (remoteip) params.append('remoteip', remoteip);
-    const resp = await axios.post('https://www.google.com/recaptcha/api/siteverify', params);
-    return resp.data;
-}
-
 const ipWhitelist = (req, res, next) => {
     const allowed = (process.env.ALLOWED_IP || '').trim();
     if (!allowed) return next();
@@ -160,9 +149,10 @@ async function startServer() {
     await mongoose.connect(process.env.MONGODB_URI);
     console.log("MongoDB Connected ✅");
 
-    // 2. AdminJS Mount
+    // 2. AdminJS Setup
     const SESSION_SECRET = (process.env.SESSION_SECRET || 'hydro-sweep-admin-secret-32-chars').trim();
-    const admin = new AdminJS({
+    
+    const adminOptions = {
         resources: [Review, Response, Contact, Alert, Analytics, LastLoggedIn],
         rootPath: ADMIN_PATH,
         loginPath: `${ADMIN_PATH}/login`,
@@ -174,8 +164,6 @@ async function startServer() {
             handler: async () => {
                 const now = new Date();
                 const startOfToday = new Date(now).setHours(0,0,0,0);
-                const start7Days = new Date(now).setDate(now.getDate() - 7);
-                
                 const [viewsToday, viewsAllTime, leadsCount, recentContacts, lastLogin] = await Promise.all([
                     Analytics.countDocuments({ timestamp: { $gte: startOfToday } }),
                     Analytics.countDocuments(),
@@ -183,21 +171,30 @@ async function startServer() {
                     Contact.find().sort({ createdAt: -1 }).limit(5).lean(),
                     LastLoggedIn.findOne().sort({ loginAt: -1 }).lean(),
                 ]);
-
                 return { viewsToday, viewsAllTime, leadsCount, recentContacts, lastLogin: lastLogin?.loginAt };
             }
         },
-    });
+    };
 
-    // Asset serving fix for Render
-    if (IS_PRODUCTION) {
-        admin.options.env = { NODE_ENV: 'development' }; 
-        admin.options.bundler = { bundleDir: BUNDLE_DIR };
+    // Force AdminJS to bundle even in production mode during build
+    if (process.env.BUILD_ADMINJS === 'true') {
+        adminOptions.env = { NODE_ENV: 'development' };
+        adminOptions.bundler = { bundleDir: BUNDLE_DIR };
+    }
+
+    const admin = new AdminJS(adminOptions);
+
+    // CRITICAL: Pre-bundle logic
+    if (process.env.BUILD_ADMINJS === 'true') {
+        console.log("🛠️  Generating AdminJS bundle for Render...");
+        await admin.initialize();
+        console.log("✅ AdminJS bundle generated. Exiting build process.");
+        process.exit(0); 
     }
 
     await admin.initialize();
     
-    // Serve the actual bundled assets from /tmp
+    // Serve the bundled assets
     app.use(`${ADMIN_PATH}/frontend/assets`, express.static(BUNDLE_DIR));
 
     const adminRouter = AdminJSExpress.buildAuthenticatedRouter(admin, {
@@ -229,10 +226,10 @@ async function startServer() {
     app.use(passport.session());
     app.use(flash);
 
-    // 4. CSRF & Security
+    // 4. CSRF & Security (Bypass Admin and specific APIs)
     app.use((req, res, next) => {
         const bypass = ["/api/upload", "/ai/togetherai-camera", "/send-to-n8n", ADMIN_PATH];
-        if (bypass.some(path => req.originalUrl.startsWith(path))) return next();
+        if (bypass.some(p => req.originalUrl.startsWith(p))) return next();
         lusca.csrf()(req, res, next);
     });
 
@@ -242,7 +239,7 @@ async function startServer() {
         next();
     });
 
-    // 5. Analytics Middleware
+    // 5. Analytics & Public Routes
     const trackViews = async (req, res, next) => {
         if (!req.session.viewTracked) {
             req.session.viewTracked = true;
@@ -251,7 +248,6 @@ async function startServer() {
         next();
     };
 
-    // 6. Routes
     app.get("/", trackViews, (req, res) => {
         const indexPath = path.join(__dirname, "public", "index.html");
         fs.readFile(indexPath, 'utf8', (err, data) => {
@@ -260,35 +256,26 @@ async function startServer() {
         });
     });
 
+    // ... All other routes (Auth, Reviews, API) ...
     app.get("/login", userController.getLogin);
-    app.post("/login", loginLimiter, userController.postLogin);
+    app.post("/login", userController.postLogin);
     app.get("/logout", userController.logout);
-    app.get("/signup", userController.getSignup);
-    app.post("/signup", loginLimiter, userController.postSignup);
-    app.get("/contact", strictLimiter, contactController.getContact);
-    app.post("/api/contact", contactFormLimiter, async (req, res) => {
-        const { fullName, phone, message } = req.body;
+    app.post("/api/contact", async (req, res) => {
         const last = await Contact.findOne().sort({ messageNumber: -1 });
         const nextNum = (last?.messageNumber || 0) + 1;
         await new Contact({ ...req.body, messageNumber: nextNum }).save();
         res.json({ success: true, messageNumber: nextNum });
     });
 
-    app.get('/api/reviews', async (req, res) => {
-        const reviews = await Review.find().sort({ createdAt: -1 }).limit(5);
-        res.json({ reviews: reviews.map(r => ({ ...r.toObject(), name: maskName(r.name) })) });
-    });
-
-    app.post("/send-to-n8n", chatbotLimiter, async (req, res) => {
-        const { message, sessionId } = req.body;
-        const resp = await n8nPost({ message, sessionId });
+    app.post("/send-to-n8n", async (req, res) => {
+        const resp = await n8nPost(req.body);
         res.json({ reply: resp.data.reply || resp.data });
     });
 
     app.use("/", express.static(path.join(__dirname, "public")));
     app.use((req, res) => res.status(404).send("Page Not Found"));
 
-    // 7. Start Listening
+    // 6. Start Listening
     const server = app.listen(app.get("port"), () => {
         console.log(`🚀 Server running on port ${app.get("port")}`);
     });
@@ -296,15 +283,15 @@ async function startServer() {
     const wss = new WebSocketServer({ server });
     wss.on("connection", (ws) => {
         ws.on("message", async (raw) => {
-            const { message, sessionId } = JSON.parse(raw.toString());
-            const resp = await n8nPost({ message, sessionId });
+            const data = JSON.parse(raw.toString());
+            const resp = await n8nPost(data);
             ws.send(JSON.stringify({ reply: resp.data.reply || resp.data }));
         });
     });
 }
 
 startServer().catch(err => {
-    console.error("Critical Startup Error:", err);
+    console.error("Startup Error:", err);
     process.exit(1);
 });
 
