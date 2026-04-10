@@ -5,26 +5,30 @@
  * + AdminJS Secure Dashboard (Analytics Fixes & Independent Session)
  * ---------------------------------------------------------------------
  *
- * RENDER PRODUCTION FIX — EPHEMERAL FILESYSTEM:
+ * RENDER PRODUCTION FIX — EPHEMERAL FILESYSTEM + CUSTOM rootPath:
  *
- *  Render's filesystem is read-only at the project root. Any .adminjs/
- *  folder written during the build step is LOST when the dyno restarts.
- *  The solution is to write the AdminJS component bundle into /tmp at
- *  startup (which IS writable at runtime), then serve it as a static
- *  route so the browser can load components.bundle.js correctly.
+ *  Two compounding problems on Render:
  *
- *  Key settings:
- *   • ADMIN_BUNDLE_PATH env var (default: /tmp/adminjs-bundles)
- *   • AdminJS env forced to { NODE_ENV: 'development' } — this tells
- *     AdminJS's ComponentLoader to actually RUN the bundler even when
- *     the global NODE_ENV is 'production'. Without this the bundler
- *     skips and components.bundle.js is never generated.
- *   • express.static path EXACTLY matches the bundlePath so the browser
- *     request for /ADMIN_PATH/frontend/assets/components.bundle.js
- *     resolves to /tmp/adminjs-bundles/components.bundle.js.
+ *  1. EPHEMERAL FILESYSTEM: Render's root directory is read-only at
+ *     runtime. The bundle MUST be written to /tmp/adminjs which is
+ *     always writable. We set bundleDir to /tmp/adminjs and force
+ *     env.NODE_ENV='development' so AdminJS's ComponentLoader actually
+ *     runs Webpack even when global NODE_ENV is 'production'.
+ *
+ *  2. CUSTOM rootPath ASSET ROUTING: Because AdminJS is mounted at
+ *     /electric-puffin-vault-12 instead of /admin, the browser requests
+ *     the bundle at:
+ *       /electric-puffin-vault-12/frontend/assets/components.bundle.js
+ *     The express.static mount MUST match that exact subpath:
+ *       app.use(`${ADMIN_PATH}/frontend/assets`, express.static(BUNDLE_DIR))
+ *     Using just `${ADMIN_PATH}/frontend` leaves the /assets segment
+ *     unresolved and Express falls through to the 404 handler, which
+ *     returns HTML — causing the MIME type 'text/html' error.
+ *
+ *  Other fixes maintained:
  *   • AdminJS mounts BEFORE body parsers, session, CSRF.
  *   • CSRF bypass uses req.originalUrl (not req.path).
- *   • Admin session is isolated from the main app session.
+ *   • Admin session isolated from main app session.
  *   • IP whitelist skipped when ALLOWED_IP is blank.
  *   • Admin cookie sameSite:'none' on HTTPS (required for Render).
  * ---------------------------------------------------------------------
@@ -108,9 +112,11 @@ const secureTransfer = IS_PRODUCTION || process.env.BASE_URL?.startsWith("https"
 // Render env var should be:  ADMIN_PATH=electric-puffin-vault-12  (no slash)
 const ADMIN_PATH = `/${(process.env.ADMIN_PATH || 'electric-puffin-vault-12').trim().replace(/^\//, '')}`;
 
-// BUNDLE PATH: /tmp is always writable on Render at runtime.
-// Override via ADMIN_BUNDLE_PATH env var if needed.
-const BUNDLE_PATH = (process.env.ADMIN_BUNDLE_PATH || '/tmp/adminjs-bundles').trim();
+// BUNDLE_DIR: the directory where AdminJS writes components.bundle.js.
+// /tmp/adminjs is ALWAYS writable on Render at runtime.
+// The static route below serves this directory at the exact URL path
+// AdminJS uses: ADMIN_PATH/frontend/assets/components.bundle.js
+const BUNDLE_DIR = '/tmp/adminjs';
 
 /** --------------------------
  * MONGOOSE MODELS
@@ -230,12 +236,10 @@ async function buildAndMountAdminJS() {
     const ADMIN_EMAIL    = (process.env.ADMIN_EMAIL    || '').trim();
     const ADMIN_PASS     = (process.env.ADMIN_PASSWORD || '').trim();
 
-    // Ensure the bundle output directory exists and is writable.
-    // On Render this will be /tmp/adminjs-bundles which survives the whole
-    // process lifetime (but NOT across redeploys — that's fine, we bundle
-    // fresh on every startup which takes ~5s).
-    fs.mkdirSync(BUNDLE_PATH, { recursive: true });
-    console.log(`📁 AdminJS bundle path: ${BUNDLE_PATH}`);
+    // Step 1: Create /tmp/adminjs — guaranteed writable on Render at runtime.
+    // This must happen before new AdminJS() so bundleDir exists when Webpack runs.
+    fs.mkdirSync(BUNDLE_DIR, { recursive: true });
+    console.log(`📁 AdminJS bundle directory ready: ${BUNDLE_DIR}`);
 
     const admin = new AdminJS({
         resources: [Review, Response, Contact, Alert, Analytics, LastLoggedIn],
@@ -244,16 +248,17 @@ async function buildAndMountAdminJS() {
         logoutPath: `${ADMIN_PATH}/logout`,
         componentLoader,
 
-        // CRITICAL: Force 'development' here regardless of global NODE_ENV.
-        // This tells AdminJS's ComponentLoader to actually RUN the Webpack
-        // bundler and write components.bundle.js into bundleDir.
-        // Without this, when NODE_ENV=production the bundler silently skips
-        // and components.bundle.js is never generated → 404 + MIME error.
+        // Step 3: Force 'development' regardless of global NODE_ENV.
+        // AdminJS's ComponentLoader checks this internal env flag to decide
+        // whether to run Webpack. When it sees 'production' it skips bundling
+        // entirely — components.bundle.js is never written — causing the 404.
+        // Forcing 'development' here makes it bundle on every startup (~5–10s).
         env: { NODE_ENV: 'development' },
 
-        // Point AdminJS at the writable /tmp directory for output.
-        // This must EXACTLY match the express.static path registered below.
-        bundleDir: BUNDLE_PATH,
+        // Step 2: Tell AdminJS exactly where to write components.bundle.js.
+        // This MUST be the directory — AdminJS appends the filename itself.
+        // Must match the express.static directory registered in Step 4 below.
+        bundleDir: BUNDLE_DIR,
 
         branding: { companyName: 'Hydro Sweep Services', withMadeWithLove: false },
         dashboard: {
@@ -349,18 +354,28 @@ async function buildAndMountAdminJS() {
         },
     });
 
-    // This triggers the Webpack bundle. Because env.NODE_ENV is forced to
-    // 'development' above, AdminJS will write components.bundle.js into
-    // BUNDLE_PATH (/tmp/adminjs-bundles) before the server accepts traffic.
+    // Runs Webpack. Because env.NODE_ENV='development' above, AdminJS writes
+    // components.bundle.js into BUNDLE_DIR (/tmp/adminjs) before continuing.
     await admin.initialize();
-    console.log(`✅ AdminJS bundle written to ${BUNDLE_PATH}`);
+    console.log(`✅ AdminJS bundle written to ${BUNDLE_DIR}`);
 
-    // CRITICAL: The express.static path here MUST exactly match bundleDir above.
-    // AdminJS generates a URL like /ADMIN_PATH/frontend/assets/components.bundle.js
-    // This middleware maps that URL to the file at BUNDLE_PATH/components.bundle.js.
-    // If these two paths differ even slightly you get 404 + MIME type 'text/html'.
-    app.use(`${ADMIN_PATH}/frontend`, express.static(BUNDLE_PATH));
-    console.log(`📦 AdminJS static assets served: ${ADMIN_PATH}/frontend → ${BUNDLE_PATH}`);
+    // Step 4: THE CRITICAL ROUTE FIX.
+    //
+    // AdminJS generates asset URLs relative to rootPath + '/frontend/assets/':
+    //   /electric-puffin-vault-12/frontend/assets/components.bundle.js
+    //
+    // The express.static mount point MUST end in /frontend/assets so that
+    // Express strips that prefix and resolves the remaining filename
+    // (components.bundle.js) against BUNDLE_DIR (/tmp/adminjs).
+    //
+    // Previous attempts used `${ADMIN_PATH}/frontend` which left '/assets'
+    // unstripped — Express looked for /tmp/adminjs/assets/components.bundle.js
+    // (doesn't exist), fell through, and the 404 handler returned HTML,
+    // triggering the "MIME type 'text/html'" browser error.
+    //
+    // This single line is what makes the custom path work:
+    app.use(`${ADMIN_PATH}/frontend/assets`, express.static(BUNDLE_DIR));
+    console.log(`📦 Bundle route: ${ADMIN_PATH}/frontend/assets → ${BUNDLE_DIR}`);
 
     const cookiePwd = SESSION_SECRET.padEnd(32, '0').substring(0, 32);
 
@@ -389,8 +404,8 @@ async function buildAndMountAdminJS() {
         name: 'adminjs-sid',
         cookie: {
             httpOnly: true,
-            // sameSite:'none' required on HTTPS — the browser blocks the cookie
-            // during AdminJS's login redirect unless this is set.
+            // sameSite:'none' required on HTTPS — the browser drops the cookie
+            // during AdminJS's login redirect flow without this on Render.
             sameSite: secureTransfer ? 'none' : 'lax',
             secure: secureTransfer,
             maxAge: 86400000,
@@ -398,6 +413,7 @@ async function buildAndMountAdminJS() {
         store: MongoStore.create({ mongoUrl: process.env.MONGODB_URI }),
     });
 
+    // Mount IP whitelist THEN adminRouter — order matters
     app.use(ADMIN_PATH, ipWhitelist, adminRouter);
     console.log(`✅ AdminJS mounted at ${ADMIN_PATH}`);
 }
@@ -652,7 +668,7 @@ async function startServer() {
         console.log(`🚀 Server running at http://localhost:${app.get("port")}`);
         console.log(`🛡️  Admin panel → http://localhost:${app.get("port")}${ADMIN_PATH}`);
         console.log(`🌍 Environment: ${process.env.NODE_ENV || 'development'}`);
-        console.log(`📦 AdminJS bundle path: ${BUNDLE_PATH}`);
+        console.log(`📦 AdminJS bundle: ${BUNDLE_DIR}/components.bundle.js`);
     });
 
     const wss = new WebSocketServer({ server });
