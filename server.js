@@ -7,21 +7,23 @@
  *
  * PRODUCTION FIXES (Render deployment):
  *
- *  1. AdminJS env flag — passes { NODE_ENV } into the AdminJS instance so
- *     it uses the pre-built .adminjs/bundle.js instead of trying to bundle
- *     on the fly (which fails on Render's read-only filesystem).
+ *  1. AdminJS env flag — passes NODE_ENV into the AdminJS instance so it
+ *     uses the pre-built .adminjs/bundle.js instead of bundling on the fly.
  *
- *  2. CSRF bypass uses req.originalUrl instead of req.path so that the
- *     AdminJS internal API calls (e.g. /electric-puffin-vault-12/api/...)
- *     are never touched by lusca regardless of how Express strips prefixes.
+ *  2. Static bundle route — explicitly serves .adminjs/ under the admin path
+ *     so the browser can load bundle.js in production.
  *
- *  3. IP whitelist reads the real client IP via req.ips[0] (populated when
- *     trust proxy > 0) so Render's proxy chain doesn't block the admin.
- *     Set ALLOWED_IP in Render env vars to your real public IP, OR leave it
- *     blank to disable the whitelist entirely in production.
+ *  3. CSRF bypass uses req.originalUrl instead of req.path so AdminJS
+ *     internal API calls are never touched by lusca.
  *
- *  4. AdminJS is mounted BEFORE body parsers and session so its own internal
- *     middleware runs clean without interference from the main app stack.
+ *  4. IP whitelist reads req.ips[0] (real client IP behind Render's proxy).
+ *     If ALLOWED_IP is blank, whitelist is skipped — rely on secret path.
+ *
+ *  5. Admin cookie uses sameSite:'none' on HTTPS so the browser does not
+ *     drop it during AdminJS's login redirect flow on Render.
+ *
+ *  6. AdminJS mounts BEFORE body parsers and main app session so its own
+ *     internal middleware runs without interference.
  * ---------------------------------------------------------------------
  */
 import 'dotenv/config';
@@ -98,7 +100,10 @@ const chatbotLimiter = rateLimit({
 
 const IS_PRODUCTION  = process.env.NODE_ENV === 'production';
 const secureTransfer = IS_PRODUCTION || process.env.BASE_URL?.startsWith("https") || false;
-const ADMIN_PATH     = `/${(process.env.ADMIN_PATH || 'electric-puffin-vault-12').trim()}`;
+
+// ADMIN_PATH: read from env WITHOUT a leading slash, then prepend one here.
+// Render env var should be:  ADMIN_PATH=electric-puffin-vault-12  (no slash)
+const ADMIN_PATH = `/${(process.env.ADMIN_PATH || 'electric-puffin-vault-12').trim().replace(/^\//, '')}`;
 
 /** --------------------------
  * MONGOOSE MODELS
@@ -178,26 +183,19 @@ const maskName = (name) => {
 };
 
 // ── AdminJS IP Whitelist ──────────────────────────────────────────────────────
-// FIX 3: Use req.ips[0] (set by trust proxy) to get the real client IP behind
-// Render's proxy. req.ip alone can return the proxy's internal address.
-// If ALLOWED_IP is blank, the whitelist is skipped entirely — useful for
-// production where you may not have a static IP but rely on the secret path.
+// FIX 4: If ALLOWED_IP is blank, skip entirely — rely on the secret URL path.
+// If set, use req.ips[0] (real client IP from X-Forwarded-For via trust proxy).
 const ipWhitelist = (req, res, next) => {
     const allowed = (process.env.ALLOWED_IP || '').trim();
+    if (!allowed) return next(); // No IP configured → open to anyone with the secret URL
 
-    // If no IP is configured, skip the whitelist (rely on secret path instead)
-    if (!allowed) return next();
-
-    // req.ips is an array of IPs from X-Forwarded-For when trust proxy is set.
-    // The first entry is the original client; fall back to req.ip if empty.
     const clientIp = (req.ips && req.ips.length > 0) ? req.ips[0] : (req.ip || '');
-
-    const isLocal = ['::1', '127.0.0.1', '::ffff:127.0.0.1'].includes(clientIp)
+    const isLocal  = ['::1', '127.0.0.1', '::ffff:127.0.0.1'].includes(clientIp)
         || clientIp.startsWith('::ffff:127.');
 
     if (isLocal || clientIp === allowed) return next();
 
-    console.warn(`[AdminJS] Blocked IP: ${clientIp} (allowed: ${allowed})`);
+    console.warn(`[AdminJS] Blocked IP: ${clientIp}`);
     res.status(404).send('Not Found');
 };
 
@@ -210,9 +208,7 @@ app.set("port", process.env.PORT || 8080);
 app.set("views", path.join(__dirname, "views"));
 app.set("view engine", "pug");
 
-// FIX 3 (cont): trust proxy must be set BEFORE AdminJS mounts so that
-// req.ips is populated correctly from Render's X-Forwarded-For headers.
-// '1' trusts the first proxy hop (Render's load balancer).
+// trust proxy MUST be set before AdminJS mounts so req.ips is populated.
 app.set("trust proxy", 1);
 
 app.use(morganLogger());
@@ -227,9 +223,7 @@ async function buildAndMountAdminJS() {
     const ADMIN_EMAIL    = (process.env.ADMIN_EMAIL    || '').trim();
     const ADMIN_PASS     = (process.env.ADMIN_PASSWORD || '').trim();
 
-    // FIX 1: Pass env.NODE_ENV into AdminJS so it uses the pre-built
-    // .adminjs/bundle.js in production instead of attempting an on-the-fly
-    // Webpack bundle (which fails on Render's ephemeral filesystem).
+    // FIX 1: Pass NODE_ENV so AdminJS uses the pre-built bundle in production.
     const admin = new AdminJS({
         resources: [Review, Response, Contact, Alert, Analytics, LastLoggedIn],
         rootPath: ADMIN_PATH,
@@ -333,18 +327,26 @@ async function buildAndMountAdminJS() {
         },
     });
 
-    // In production, tell AdminJS to serve the pre-built bundle from .adminjs/
-    // This is the equivalent of running `adminjs build` and pointing at the output.
+    // Always initialize regardless of environment
+    await admin.initialize();
+
+    // FIX 2: In production, explicitly serve the .adminjs build output folder
+    // as a static route under the admin path. The browser requests
+    // /ADMIN_PATH/frontend/bundle.js — without this line Express returns 404.
     if (IS_PRODUCTION) {
-        await admin.initialize();
-    } else {
-        await admin.initialize();
+        const bundlePath = path.join(__dirname, '.adminjs');
+        if (fs.existsSync(bundlePath)) {
+            app.use(`${ADMIN_PATH}/frontend`, express.static(bundlePath));
+            console.log(`📦 AdminJS bundle served from .adminjs/ at ${ADMIN_PATH}/frontend`);
+        } else {
+            console.warn('⚠️  .adminjs folder not found — run npm run build before deploying');
+        }
     }
 
     const cookiePwd = SESSION_SECRET.padEnd(32, '0').substring(0, 32);
 
-    // FIX 4: AdminJS gets its own isolated session store and cookie name so it
-    // never collides with the Hackathon Starter's 'startercookie' session.
+    // FIX 5: sameSite:'none' is required when secure:true (HTTPS) so the
+    // browser doesn't block the cookie during AdminJS's login redirect on Render.
     const adminRouter = AdminJSExpress.buildAuthenticatedRouter(admin, {
         authenticate: async (email, password) => {
             if (email?.trim() === ADMIN_EMAIL && password?.trim() === ADMIN_PASS) {
@@ -370,9 +372,6 @@ async function buildAndMountAdminJS() {
         name: 'adminjs-sid',
         cookie: {
             httpOnly: true,
-            // FIX: sameSite must be 'none' when secure=true (HTTPS production),
-            // otherwise the browser blocks the cookie on cross-origin redirects
-            // that happen during AdminJS's login flow on Render.
             sameSite: secureTransfer ? 'none' : 'lax',
             secure: secureTransfer,
             maxAge: 86400000,
@@ -392,12 +391,14 @@ async function startServer() {
     await mongoose.connect(process.env.MONGODB_URI);
     console.log("Mongoose Connected ✅");
 
-    // FIX 4 (cont): AdminJS mounts first, before ANY body parsers or session
-    // middleware from the main app. This ensures AdminJS's own internal request
-    // handling (bundle serving, API calls, login POST) is never intercepted.
+    // FIX 6: AdminJS mounts FIRST — before body parsers and main session —
+    // so its internal middleware (bundle serving, login POST, API calls)
+    // runs without interference from the main app stack.
     await buildAndMountAdminJS();
 
     // ── Body Parsers (skip for AdminJS routes) ────────────────────────────────
+    // FIX 3: Use req.originalUrl (not req.path) to detect admin routes reliably.
+    // req.path can be stripped by nested routers; req.originalUrl is always full.
     app.use((req, res, next) => {
         if (req.originalUrl.startsWith(ADMIN_PATH)) return next();
         express.json()(req, res, (err) => {
@@ -427,9 +428,7 @@ async function startServer() {
     app.use(flash);
 
     // ── CSRF Protection ───────────────────────────────────────────────────────
-    // FIX 2: Use req.originalUrl (not req.path) so the full path including the
-    // admin prefix is checked. req.path can be stripped by nested routers and
-    // may not start with ADMIN_PATH even for admin requests.
+    // FIX 3 (cont): req.originalUrl ensures AdminJS paths are always bypassed.
     app.use((req, res, next) => {
         if (
             req.originalUrl === "/api/upload" ||
@@ -450,7 +449,7 @@ async function startServer() {
         next();
     });
 
-    // /js/lib static — not a tracked page, safe early
+    // /js/lib static — safe early, not a tracked page
     app.use("/js/lib", express.static(path.join(__dirname, "node_modules/chart.js/dist")));
     app.locals.GOOGLE_ANALYTICS_ID = process.env.GOOGLE_ANALYTICS_ID || null;
 
