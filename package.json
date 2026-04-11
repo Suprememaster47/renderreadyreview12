@@ -24,6 +24,7 @@
     "@adminjs/express": "^6.1.1",
     "@adminjs/mongoose": "^4.1.0",
     "adminjs": "^7.8.17",
+    "esbuild": "^0.25.0",
     "styled-components": "^5.3.11",
     "styled-system": "^5.1.5",
     "express-formidable": "^1.2.0",
