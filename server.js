@@ -7,11 +7,8 @@
  *
  * PRODUCTION FIXES (Render deployment):
  *
- *  1. AdminJS v7 bundles at runtime via admin.initialize() — do NOT set
- *     bundleDir or add a custom static route for the bundle. Doing so
- *     tells AdminJS "use pre-built files" but since there is no separate
- *     build step on Render those files don't exist, so AdminJS serves
- *     nothing and the dashboard is blank.
+ *  1. AdminJS v7 bundles at runtime via admin.initialize() — esbuild
+ *     compiles Dashboard.jsx into .adminjs/ directory.
  *  2. ApiClient is imported directly from 'adminjs' in Dashboard.jsx —
  *     window.AdminJS.ApiClient does not exist in v7.
  *  3. Stale .adminjs cache is cleared on startup so a broken bundle from
@@ -20,11 +17,10 @@
  *  5. IP whitelist skipped when ALLOWED_IP is blank (rely on secret URL).
  *  6. Admin cookie sameSite:'none' on HTTPS for Render's redirect flow.
  *  7. AdminJS mounts BEFORE body parsers and main app session.
- *  8. 404 handler skips ADMIN_PATH so AdminJS internal asset requests
- *     (frontend/assets/*.js) are not intercepted and served as HTML.
- *  9. Security trap routes explicitly pass through ADMIN_PATH requests
- *     via next() instead of ending the response, so the AdminJS router
- *     can handle its own sub-routes.
+ *  8. .adminjs bundle directory is served as static files explicitly to
+ *     prevent the 404 handler from intercepting asset requests.
+ *  9. Final 404 handler and all security traps bypass ADMIN_PATH so
+ *     AdminJS's internal routes are never intercepted.
  * ---------------------------------------------------------------------
  */
 import 'dotenv/config';
@@ -102,8 +98,6 @@ const chatbotLimiter = rateLimit({
 const IS_PRODUCTION  = process.env.NODE_ENV === 'production';
 const secureTransfer = IS_PRODUCTION || process.env.BASE_URL?.startsWith("https") || false;
 
-// ADMIN_PATH: strip any accidental leading slash from the env var, then add one.
-// Render env var should be:  ADMIN_PATH=electric-puffin-vault-12  (no slash)
 const ADMIN_PATH = `/${(process.env.ADMIN_PATH || 'electric-puffin-vault-12').trim().replace(/^\//, '')}`;
 
 /** --------------------------
@@ -133,7 +127,6 @@ const alertSchema = new mongoose.Schema({
 });
 const Alert = mongoose.models.Alert || mongoose.model('Alert', alertSchema);
 
-// ── Analytics: one document = one unique visitor session ─────────────────────
 const analyticsSchema = new mongoose.Schema({
     path:      { type: String },
     source:    { type: String, default: 'direct' },
@@ -183,11 +176,6 @@ const maskName = (name) => {
     return str.substring(0, 2) + "*".repeat(str.length - 2);
 };
 
-// ── AdminJS IP Whitelist ──────────────────────────────────────────────────────
-// If ALLOWED_IP is blank, skip entirely — rely on the secret URL path alone.
-// If set, use req.ips[0] (real client IP from X-Forwarded-For via trust proxy).
-// NOTE: Do NOT set ALLOWED_IP on Render — Cloudflare sits in front and your
-// real IP will never arrive. The secret URL is sufficient protection.
 const ipWhitelist = (req, res, next) => {
     const allowed = (process.env.ALLOWED_IP || '').trim();
     if (!allowed) return next();
@@ -210,8 +198,6 @@ app.set("host", "0.0.0.0");
 app.set("port", process.env.PORT || 8080);
 app.set("views", path.join(__dirname, "views"));
 app.set("view engine", "pug");
-
-// trust proxy MUST be set before AdminJS mounts so req.ips is populated.
 app.set("trust proxy", 1);
 
 app.use(morganLogger());
@@ -226,30 +212,12 @@ async function buildAndMountAdminJS() {
     const ADMIN_EMAIL    = (process.env.ADMIN_EMAIL    || '').trim();
     const ADMIN_PASS     = (process.env.ADMIN_PASSWORD || '').trim();
 
-    // FIX 1: Clear any stale .adminjs bundle cache from previous failed builds.
-    //
-    // AdminJS v7 compiles your JSX components at runtime using esbuild inside
-    // admin.initialize(). The output lands in a .adminjs/ directory next to
-    // server.js. If a previous deploy left behind a broken or incomplete
-    // .adminjs/ directory, AdminJS detects it already exists and may skip
-    // re-bundling, then serve the stale (broken) bundle to the browser.
-    //
-    // Wiping it here forces a clean compile on every server start. This is
-    // safe on Render because each deploy gets a fresh ephemeral filesystem
-    // anyway — the wipe only matters when you restart without redeploying
-    // (e.g. via Render's "Restart service" button).
-    //
-    // Do NOT add a bundleDir option to the AdminJS config and do NOT add
-    // a custom express.static() route for .adminjs/ — both of those break
-    // AdminJS's own internal asset handler which is what actually serves
-    // the compiled bundle to the browser.
     const adminBundleDir = path.join(__dirname, '.adminjs');
     if (fs.existsSync(adminBundleDir)) {
         try {
             fs.rmSync(adminBundleDir, { recursive: true, force: true });
             console.log('🧹 Cleared stale .adminjs bundle cache');
         } catch (e) {
-            // Non-fatal — log and continue. AdminJS will overwrite anyway.
             console.warn('⚠️  Could not clear .adminjs cache:', e.message);
         }
     }
@@ -354,16 +322,41 @@ async function buildAndMountAdminJS() {
         },
     });
 
-    // FIX 2: admin.initialize() is what triggers esbuild to compile
-    // Dashboard.jsx into the bundle that AdminJS serves internally.
-    // This must fully complete before the router is built — always await it.
     await admin.initialize();
     console.log('✅ AdminJS initialized — bundle compiled');
 
+    // ── FIX 8: Serve the compiled .adminjs bundle as static files ─────────
+    // AdminJS v7 compiles custom components (Dashboard.jsx) into .adminjs/
+    // via esbuild during admin.initialize(). The admin router is SUPPOSED to
+    // serve these internally, but on Render the requests sometimes fall
+    // through to the global 404 handler, returning HTML instead of JS —
+    // causing the "MIME type text/html is not executable" error.
+    //
+    // By explicitly mounting express.static for .adminjs at the path AdminJS
+    // uses for its frontend bundles, we guarantee the browser gets the real
+    // .js file with the correct Content-Type header.
+    //
+    // This must come BEFORE the adminRouter mount so static files are served
+    // without requiring session authentication.
+    const bundlePath = path.join(__dirname, '.adminjs');
+    if (fs.existsSync(bundlePath)) {
+        app.use(`${ADMIN_PATH}/frontend/assets`, express.static(bundlePath, {
+            maxAge: IS_PRODUCTION ? '1h' : 0,
+            setHeaders: (res, filePath) => {
+                if (filePath.endsWith('.js')) {
+                    res.setHeader('Content-Type', 'application/javascript; charset=utf-8');
+                } else if (filePath.endsWith('.css')) {
+                    res.setHeader('Content-Type', 'text/css; charset=utf-8');
+                }
+            },
+        }));
+        console.log('✅ Serving .adminjs bundle at', `${ADMIN_PATH}/frontend/assets`);
+    } else {
+        console.warn('⚠️  .adminjs bundle directory not found after initialize()');
+    }
+
     const cookiePwd = SESSION_SECRET.padEnd(32, '0').substring(0, 32);
 
-    // FIX 3: sameSite:'none' required when secure:true (HTTPS) so the browser
-    // keeps the cookie through AdminJS's login redirect flow on Render.
     const adminRouter = AdminJSExpress.buildAuthenticatedRouter(admin, {
         authenticate: async (email, password) => {
             if (email?.trim() === ADMIN_EMAIL && password?.trim() === ADMIN_PASS) {
@@ -396,7 +389,6 @@ async function buildAndMountAdminJS() {
         store: MongoStore.create({ mongoUrl: process.env.MONGODB_URI }),
     });
 
-    // Mount IP whitelist THEN adminRouter
     app.use(ADMIN_PATH, ipWhitelist, adminRouter);
     console.log(`✅ AdminJS mounted at ${ADMIN_PATH}`);
 }
@@ -408,13 +400,9 @@ async function startServer() {
     await mongoose.connect(process.env.MONGODB_URI);
     console.log("Mongoose Connected ✅");
 
-    // FIX 4: AdminJS mounts FIRST — before body parsers and main session —
-    // so its internal middleware runs clean without interference.
     await buildAndMountAdminJS();
 
     // ── Body Parsers (skip for AdminJS routes) ────────────────────────────────
-    // FIX 5: Use req.originalUrl (not req.path) — req.path can be stripped by
-    // nested routers and may not match ADMIN_PATH for admin subroutes.
     app.use((req, res, next) => {
         if (req.originalUrl.startsWith(ADMIN_PATH)) return next();
         express.json()(req, res, (err) => {
@@ -430,22 +418,34 @@ async function startServer() {
     });
 
     // ── Global App Session ────────────────────────────────────────────────────
-    app.use(session({
-        resave: true,
-        saveUninitialized: false,
-        secret: process.env.SESSION_SECRET || 'dev-secret',
-        name: "startercookie",
-        cookie: { maxAge: 1209600000, secure: secureTransfer },
-        store: MongoStore.create({ mongoUrl: process.env.MONGODB_URI }),
-    }));
+    app.use((req, res, next) => {
+        if (req.originalUrl.startsWith(ADMIN_PATH)) return next();
+        session({
+            resave: true,
+            saveUninitialized: false,
+            secret: process.env.SESSION_SECRET || 'dev-secret',
+            name: "startercookie",
+            cookie: { maxAge: 1209600000, secure: secureTransfer },
+            store: MongoStore.create({ mongoUrl: process.env.MONGODB_URI }),
+        })(req, res, next);
+    });
 
-    app.use(passport.initialize());
-    app.use(passport.session());
-    app.use(flash);
+    app.use((req, res, next) => {
+        if (req.originalUrl.startsWith(ADMIN_PATH)) return next();
+        passport.initialize()(req, res, next);
+    });
+
+    app.use((req, res, next) => {
+        if (req.originalUrl.startsWith(ADMIN_PATH)) return next();
+        passport.session()(req, res, next);
+    });
+
+    app.use((req, res, next) => {
+        if (req.originalUrl.startsWith(ADMIN_PATH)) return next();
+        flash(req, res, next);
+    });
 
     // ── CSRF Protection ───────────────────────────────────────────────────────
-    // req.originalUrl ensures all AdminJS paths are bypassed including
-    // internal API calls like /ADMIN_PATH/api/dashboard.
     app.use((req, res, next) => {
         if (
             req.originalUrl === "/api/upload" ||
@@ -457,8 +457,15 @@ async function startServer() {
         lusca.csrf()(req, res, next);
     });
 
-    app.use(lusca.xframe("SAMEORIGIN"));
-    app.use(lusca.xssProtection(true));
+    app.use((req, res, next) => {
+        if (req.originalUrl.startsWith(ADMIN_PATH)) return next();
+        lusca.xframe("SAMEORIGIN")(req, res, next);
+    });
+
+    app.use((req, res, next) => {
+        if (req.originalUrl.startsWith(ADMIN_PATH)) return next();
+        lusca.xssProtection(true)(req, res, next);
+    });
 
     app.use((req, res, next) => {
         res.locals.user = req.user;
@@ -466,18 +473,14 @@ async function startServer() {
         next();
     });
 
-    // /js/lib static — safe early, not a tracked page
     app.use("/js/lib", express.static(path.join(__dirname, "node_modules/chart.js/dist")));
     app.locals.GOOGLE_ANALYTICS_ID = process.env.GOOGLE_ANALYTICS_ID || null;
 
     /** --------------------------
      * SECURITY ROUTES
      * -------------------------- */
-
-    // Safe IP helper (works even if you didn't add global helper)
     const getIp = (req) => (req.ips && req.ips.length > 0) ? req.ips[0] : (req.ip || '');
 
-    // Reusable trap handler
     async function trapHandler(req, res) {
         try {
             await Alert.create({
@@ -487,10 +490,9 @@ async function startServer() {
             });
         } catch (e) {}
 
-        return res.status(404).send('Not Found'); // stealth
+        return res.status(404).send('Not Found');
     }
 
-    // ── 1. Exact admin trap routes ───────────────────────────────────────────────
     const ADMIN_TRAP_ROUTES = [
         '/admin', '/admin/', '/admin.php',
         '/admin/login', '/admin/login.php',
@@ -503,16 +505,11 @@ async function startServer() {
         '/management', '/moderator',
     ];
 
-    // FIX 8 (part a): Use next() instead of res.status(404).end() for ADMIN_PATH
-    // requests so the AdminJS router (already mounted above) can handle them.
-    // Previously res.status(404).end() would terminate the response before
-    // AdminJS's sub-route handler could run, causing asset 404s.
     app.all(ADMIN_TRAP_ROUTES, (req, res, next) => {
         if (req.originalUrl.startsWith(ADMIN_PATH)) return next();
         return trapHandler(req, res);
     });
 
-    // ── 2. Regex pattern traps (catches variations) ─────────────────────────────
     const ADMIN_REGEX_TRAPS = [
         /^\/admin.*/i,
         /^\/administrator.*/i,
@@ -522,13 +519,11 @@ async function startServer() {
         /^\/manage.*/i,
     ];
 
-    // FIX 8 (part b): Same fix — next() instead of res.status(404).end()
     app.all(ADMIN_REGEX_TRAPS, (req, res, next) => {
         if (req.originalUrl.startsWith(ADMIN_PATH)) return next();
         return trapHandler(req, res);
     });
 
-    // ── 3. Smart keyword detection (future-proof) ───────────────────────────────
     const ADMIN_KEYWORDS = [
         'admin',
         'administrator',
@@ -539,11 +534,8 @@ async function startServer() {
     ];
 
     app.use((req, res, next) => {
-        // NOTE: using a local variable named `urlPath` to avoid shadowing
-        // the imported `path` module from Node core.
         const urlPath = req.originalUrl.toLowerCase();
 
-        // NEVER block your real AdminJS route
         if (urlPath.startsWith(ADMIN_PATH.toLowerCase())) return next();
 
         const isSuspicious = ADMIN_KEYWORDS.some(keyword =>
@@ -575,13 +567,7 @@ async function startServer() {
 
     /** --------------------------
      * PUBLIC ROUTES
-     *
-     * CRITICAL ORDER — tracked HTML routes MUST come BEFORE
-     * app.use("/", express.static(...)) otherwise express.static
-     * intercepts the file silently and trackViews never runs.
      * -------------------------- */
-
-    // Root — inject reCAPTCHA key then track
     app.get("/", trackViews, (req, res) => {
         const indexPath = path.join(__dirname, "public", "index.html");
         fs.readFile(indexPath, 'utf8', (err, data) => {
@@ -590,13 +576,11 @@ async function startServer() {
         });
     });
 
-    // Tracked HTML pages — ABOVE express.static so trackViews fires first
     app.get("/home.html",    trackViews, (req, res) => res.sendFile(path.join(__dirname, "public", "home.html")));
     app.get("/about.html",   trackViews, (req, res) => res.sendFile(path.join(__dirname, "public", "about.html")));
     app.get("/pricing.html", trackViews, (req, res) => res.sendFile(path.join(__dirname, "public", "pricing.html")));
     app.get("/contact.html", trackViews, (req, res) => res.sendFile(path.join(__dirname, "public", "contact.html")));
 
-    // express.static AFTER tracked routes — still serves CSS/JS/images/fonts
     app.use("/", express.static(path.join(__dirname, "public")));
 
     app.get("/login",   userController.getLogin);
@@ -721,17 +705,11 @@ async function startServer() {
      * HTTP SERVER + WEBSOCKETS
      * -------------------------- */
 
-    // FIX 8 (part c): The catch-all 404 handler MUST skip ADMIN_PATH requests.
-    // AdminJS serves its frontend assets (JS bundles, CSS, fonts) through its
-    // own router middleware mounted at ADMIN_PATH. If this 404 handler catches
-    // those requests first, it responds with "Page Not Found" (text/html).
-    // The browser then rejects the response because it expected a JavaScript
-    // file but received text/html — producing the MIME type error:
-    //   "Refused to execute script because its MIME type ('text/html') is not executable"
-    //
-    // By calling next() for ADMIN_PATH requests, we let them fall through to
-    // the AdminJS router which serves the correct file with the correct
-    // Content-Type header.
+    // ── FIX 9: 404 handler MUST bypass ADMIN_PATH ────────────────────────────
+    // Without this, any AdminJS internal route that the adminRouter doesn't
+    // explicitly handle (e.g. frontend asset requests that fall through) gets
+    // a "Page Not Found" HTML response. The browser then refuses to execute
+    // the script because its MIME type is "text/html" instead of JS.
     app.use((req, res, next) => {
         if (req.originalUrl.startsWith(ADMIN_PATH)) return next();
         res.status(404).send("Page Not Found");
