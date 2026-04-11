@@ -20,6 +20,11 @@
  *  5. IP whitelist skipped when ALLOWED_IP is blank (rely on secret URL).
  *  6. Admin cookie sameSite:'none' on HTTPS for Render's redirect flow.
  *  7. AdminJS mounts BEFORE body parsers and main app session.
+ *  8. 404 handler skips ADMIN_PATH so AdminJS internal asset requests
+ *     (frontend/assets/*.js) are not intercepted and served as HTML.
+ *  9. Security trap routes explicitly pass through ADMIN_PATH requests
+ *     via next() instead of ending the response, so the AdminJS router
+ *     can handle its own sub-routes.
  * ---------------------------------------------------------------------
  */
 import 'dotenv/config';
@@ -465,87 +470,92 @@ async function startServer() {
     app.use("/js/lib", express.static(path.join(__dirname, "node_modules/chart.js/dist")));
     app.locals.GOOGLE_ANALYTICS_ID = process.env.GOOGLE_ANALYTICS_ID || null;
 
-   /** --------------------------
- * SECURITY ROUTES
- * -------------------------- */
+    /** --------------------------
+     * SECURITY ROUTES
+     * -------------------------- */
 
-// Safe IP helper (works even if you didn't add global helper)
-const getIp = (req) => (req.ips && req.ips.length > 0) ? req.ips[0] : (req.ip || '');
+    // Safe IP helper (works even if you didn't add global helper)
+    const getIp = (req) => (req.ips && req.ips.length > 0) ? req.ips[0] : (req.ip || '');
 
-// Reusable trap handler
-async function trapHandler(req, res) {
-    try {
-        await Alert.create({
-            ip: getIp(req),
-            userAgent: req.headers['user-agent'],
-            pathAttempted: req.originalUrl
-        });
-    } catch (e) {}
+    // Reusable trap handler
+    async function trapHandler(req, res) {
+        try {
+            await Alert.create({
+                ip: getIp(req),
+                userAgent: req.headers['user-agent'],
+                pathAttempted: req.originalUrl
+            });
+        } catch (e) {}
 
-    return res.status(404).send('Not Found'); // stealth
-}
-
-// ── 1. Exact admin trap routes ───────────────────────────────────────────────
-const ADMIN_TRAP_ROUTES = [
-    '/admin', '/admin/', '/admin.php',
-    '/admin/login', '/admin/login.php',
-    '/admin/dashboard',
-    '/administrator', '/administrator/',
-    '/adminpanel', '/admin-panel',
-    '/backend', '/controlpanel',
-    '/cpanel', '/cpanel/login',
-    '/dashboard', '/manage',
-    '/management', '/moderator',
-];
-
-app.all(ADMIN_TRAP_ROUTES, (req, res) => {
-    if (req.originalUrl.startsWith(ADMIN_PATH)) return res.status(404).end();
-    return trapHandler(req, res);
-});
-
-// ── 2. Regex pattern traps (catches variations) ─────────────────────────────
-const ADMIN_REGEX_TRAPS = [
-    /^\/admin.*/i,
-    /^\/administrator.*/i,
-    /^\/dashboard.*/i,
-    /^\/cpanel.*/i,
-    /^\/backend.*/i,
-    /^\/manage.*/i,
-];
-
-app.all(ADMIN_REGEX_TRAPS, (req, res) => {
-    if (req.originalUrl.startsWith(ADMIN_PATH)) return res.status(404).end();
-    return trapHandler(req, res);
-});
-
-// ── 3. Smart keyword detection (future-proof) ───────────────────────────────
-const ADMIN_KEYWORDS = [
-    'admin',
-    'administrator',
-    'dashboard',
-    'cpanel',
-    'backend',
-    'manage'
-];
-
-app.use((req, res, next) => {
-    // NOTE: using a local variable named `urlPath` to avoid shadowing
-    // the imported `path` module from Node core.
-    const urlPath = req.originalUrl.toLowerCase();
-
-    // NEVER block your real AdminJS route
-    if (urlPath.startsWith(ADMIN_PATH.toLowerCase())) return next();
-
-    const isSuspicious = ADMIN_KEYWORDS.some(keyword =>
-        urlPath.includes(`/${keyword}`)
-    );
-
-    if (isSuspicious) {
-        return trapHandler(req, res);
+        return res.status(404).send('Not Found'); // stealth
     }
 
-    next();
-});
+    // ── 1. Exact admin trap routes ───────────────────────────────────────────────
+    const ADMIN_TRAP_ROUTES = [
+        '/admin', '/admin/', '/admin.php',
+        '/admin/login', '/admin/login.php',
+        '/admin/dashboard',
+        '/administrator', '/administrator/',
+        '/adminpanel', '/admin-panel',
+        '/backend', '/controlpanel',
+        '/cpanel', '/cpanel/login',
+        '/dashboard', '/manage',
+        '/management', '/moderator',
+    ];
+
+    // FIX 8 (part a): Use next() instead of res.status(404).end() for ADMIN_PATH
+    // requests so the AdminJS router (already mounted above) can handle them.
+    // Previously res.status(404).end() would terminate the response before
+    // AdminJS's sub-route handler could run, causing asset 404s.
+    app.all(ADMIN_TRAP_ROUTES, (req, res, next) => {
+        if (req.originalUrl.startsWith(ADMIN_PATH)) return next();
+        return trapHandler(req, res);
+    });
+
+    // ── 2. Regex pattern traps (catches variations) ─────────────────────────────
+    const ADMIN_REGEX_TRAPS = [
+        /^\/admin.*/i,
+        /^\/administrator.*/i,
+        /^\/dashboard.*/i,
+        /^\/cpanel.*/i,
+        /^\/backend.*/i,
+        /^\/manage.*/i,
+    ];
+
+    // FIX 8 (part b): Same fix — next() instead of res.status(404).end()
+    app.all(ADMIN_REGEX_TRAPS, (req, res, next) => {
+        if (req.originalUrl.startsWith(ADMIN_PATH)) return next();
+        return trapHandler(req, res);
+    });
+
+    // ── 3. Smart keyword detection (future-proof) ───────────────────────────────
+    const ADMIN_KEYWORDS = [
+        'admin',
+        'administrator',
+        'dashboard',
+        'cpanel',
+        'backend',
+        'manage'
+    ];
+
+    app.use((req, res, next) => {
+        // NOTE: using a local variable named `urlPath` to avoid shadowing
+        // the imported `path` module from Node core.
+        const urlPath = req.originalUrl.toLowerCase();
+
+        // NEVER block your real AdminJS route
+        if (urlPath.startsWith(ADMIN_PATH.toLowerCase())) return next();
+
+        const isSuspicious = ADMIN_KEYWORDS.some(keyword =>
+            urlPath.includes(`/${keyword}`)
+        );
+
+        if (isSuspicious) {
+            return trapHandler(req, res);
+        }
+
+        next();
+    });
 
     // ── trackViews: ONE analytics record per unique visitor session ───────────
     const trackViews = async (req, res, next) => {
@@ -710,7 +720,23 @@ app.use((req, res, next) => {
     /** --------------------------
      * HTTP SERVER + WEBSOCKETS
      * -------------------------- */
-    app.use((req, res) => res.status(404).send("Page Not Found"));
+
+    // FIX 8 (part c): The catch-all 404 handler MUST skip ADMIN_PATH requests.
+    // AdminJS serves its frontend assets (JS bundles, CSS, fonts) through its
+    // own router middleware mounted at ADMIN_PATH. If this 404 handler catches
+    // those requests first, it responds with "Page Not Found" (text/html).
+    // The browser then rejects the response because it expected a JavaScript
+    // file but received text/html — producing the MIME type error:
+    //   "Refused to execute script because its MIME type ('text/html') is not executable"
+    //
+    // By calling next() for ADMIN_PATH requests, we let them fall through to
+    // the AdminJS router which serves the correct file with the correct
+    // Content-Type header.
+    app.use((req, res, next) => {
+        if (req.originalUrl.startsWith(ADMIN_PATH)) return next();
+        res.status(404).send("Page Not Found");
+    });
+
     if (!IS_PRODUCTION) app.use(errorHandler());
 
     const server = app.listen(app.get("port"), () => {
