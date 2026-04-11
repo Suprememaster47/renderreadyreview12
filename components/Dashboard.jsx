@@ -1,18 +1,14 @@
-/**
- * components/Dashboard.jsx
- *
- * AdminJS v7 custom dashboard component.
- */
 import React, { useEffect, useState, useRef } from 'react'
-import { ApiClient } from 'adminjs'
 
 // ── Count-up hook ─────────────────────────────────────────────────────────────
+
 function useCountUp(target, duration, start) {
   const [display, setDisplay] = useState('0')
   const frameRef = useRef(null)
 
   useEffect(() => {
     if (!start) return
+
     const strTarget = String(target)
     const isPercent = strTarget.endsWith('%')
     const raw = parseFloat(strTarget.replace('%', ''))
@@ -23,15 +19,24 @@ function useCountUp(target, duration, start) {
     }
 
     const startTime = performance.now()
+
     const tick = (now) => {
       const elapsed = now - startTime
       const progress = Math.min(elapsed / duration, 1)
       const eased = progress === 1 ? 1 : 1 - Math.pow(2, -10 * progress)
       const current = raw * eased
-      const formatted = Number.isInteger(raw) ? Math.round(current).toString() : current.toFixed(1)
+
+      const formatted = Number.isInteger(raw)
+        ? Math.round(current).toString()
+        : current.toFixed(1)
+
       setDisplay(isPercent ? `${formatted}%` : formatted)
-      if (progress < 1) frameRef.current = requestAnimationFrame(tick)
+
+      if (progress < 1) {
+        frameRef.current = requestAnimationFrame(tick)
+      }
     }
+
     frameRef.current = requestAnimationFrame(tick)
     return () => cancelAnimationFrame(frameRef.current)
   }, [target, duration, start])
@@ -40,6 +45,7 @@ function useCountUp(target, duration, start) {
 }
 
 // ── Source pill badges ────────────────────────────────────────────────────────
+
 const SOURCE_META = {
   instagram: { label: 'Instagram', color: '#e1306c', bg: '#fde8f0', icon: '📸' },
   tiktok:    { label: 'TikTok',    color: '#010101', bg: '#f0f0f0', icon: '🎵' },
@@ -57,8 +63,16 @@ const SourcePills = ({ sources, total }) => {
         const pct = total > 0 ? Math.round((count / total) * 100) : 0
         return (
           <span key={key} style={{
-            display: 'inline-flex', alignItems: 'center', gap: '3px', padding: '2px 8px', borderRadius: '99px',
-            fontSize: '10px', fontWeight: '700', background: m.bg, color: m.color, whiteSpace: 'nowrap',
+            display: 'inline-flex',
+            alignItems: 'center',
+            gap: '3px',
+            padding: '2px 8px',
+            borderRadius: '99px',
+            fontSize: '10px',
+            fontWeight: '700',
+            background: m.bg,
+            color: m.color,
+            whiteSpace: 'nowrap',
           }}>
             {m.icon} {m.label} {count} <span style={{ opacity: 0.7 }}>({pct}%)</span>
           </span>
@@ -68,114 +82,436 @@ const SourcePills = ({ sources, total }) => {
   )
 }
 
-// ── Animated components ───────────────────────────────────────────────────
+// ── Animated number display ───────────────────────────────────────────────────
+
 const AnimatedNumber = ({ value, color, animStart }) => {
   const counted = useCountUp(value, 1500, animStart)
   const chars = String(counted).split('')
+
   return (
-    <div style={{ fontSize: '32px', fontWeight: '800', color, display: 'flex', justifyContent: 'center' }}>
+    <div style={{
+      fontSize: 'clamp(22px, 6vw, 38px)',
+      fontWeight: '800',
+      color,
+      lineHeight: 1.1,
+      display: 'flex',
+      justifyContent: 'center',
+      alignItems: 'flex-end',
+      flexWrap: 'wrap',
+      overflow: 'hidden',
+      minHeight: '46px',
+      width: '100%',
+      boxSizing: 'border-box',
+      wordBreak: 'break-all',
+    }}>
       {chars.map((ch, i) => (
-        <span key={`${i}-${ch}`} style={{ animation: animStart ? 'slideUp 0.1s ease-out' : 'none' }}>{ch}</span>
+        <span
+          key={`${i}-${ch}`}
+          style={{
+            display: 'inline-block',
+            animation: animStart ? 'slideUp 0.08s ease-out' : 'none',
+          }}
+        >
+          {ch}
+        </span>
       ))}
     </div>
   )
 }
 
+// ── Tilt card ─────────────────────────────────────────────────────────────────
+
 const TiltCard = ({ children, color }) => {
   const ref = useRef(null)
-  const [tilt, setTilt] = useState({ x: 0, y: 0, scale: 1 })
+  const [tilt, setTilt] = useState({ x: 0, y: 0, scale: 1, shadow: '0 1px 6px rgba(0,0,0,0.07)' })
+
   const handleMove = (e) => {
-    const rect = ref.current.getBoundingClientRect()
-    const x = (e.clientX - rect.left) / rect.width - 0.5
-    const y = (e.clientY - rect.top) / rect.height - 0.5
-    setTilt({ x: -y * 15, y: x * 15, scale: 1.03 })
+    const card = ref.current
+    if (!card) return
+    const rect = card.getBoundingClientRect()
+    const px = (e.clientX - rect.left) / rect.width  - 0.5
+    const py = (e.clientY - rect.top)  / rect.height - 0.5
+    const rotateY =  px * 16
+    const rotateX = -py * 16
+    setTilt({
+      x: rotateX,
+      y: rotateY,
+      scale: 1.04,
+      shadow: `${-rotateY * 0.8}px ${rotateX * 0.8 + 8}px 28px rgba(0,0,0,0.18)`,
+    })
   }
+
+  const handleLeave = () => {
+    setTilt({ x: 0, y: 0, scale: 1, shadow: '0 1px 6px rgba(0,0,0,0.07)' })
+  }
+
   return (
-    <div ref={ref} onMouseMove={handleMove} onMouseLeave={() => setTilt({ x: 0, y: 0, scale: 1 })}
+    <div
+      ref={ref}
+      onMouseMove={handleMove}
+      onMouseLeave={handleLeave}
       style={{
-        background: '#fff', borderRadius: '12px', padding: '20px', flex: '1 1 140px', textAlign: 'center',
-        borderTop: `4px solid ${color}`, transition: 'transform 0.1s ease',
+        background: '#fff',
+        borderRadius: '12px',
+        padding: '22px 12px',
+        flex: '1 1 130px',
+        minWidth: '120px',
+        textAlign: 'center',
+        borderTop: `4px solid ${color}`,
+        boxSizing: 'border-box',
+        cursor: 'default',
+        willChange: 'transform',
+        transition: 'transform 0.15s ease, box-shadow 0.15s ease',
         transform: `perspective(600px) rotateX(${tilt.x}deg) rotateY(${tilt.y}deg) scale(${tilt.scale})`,
-        boxShadow: '0 4px 12px rgba(0,0,0,0.05)'
-      }}>
+        boxShadow: tilt.shadow,
+        overflow: 'hidden',
+      }}
+    >
       {children}
     </div>
   )
 }
 
+// ── Stat card ─────────────────────────────────────────────────────────────────
+
 const StatCard = ({ value, label, sublabel, color, loading, sources, total, animStart }) => (
   <TiltCard color={color}>
-    {loading ? <div>...</div> : <AnimatedNumber value={value} color={color} animStart={animStart} />}
-    <div style={{ fontSize: '12px', fontWeight: '700', marginTop: '8px' }}>{label}</div>
-    <div style={{ fontSize: '10px', color: '#aaa' }}>{sublabel}</div>
+    {loading ? (
+      <div style={{ fontSize: '38px', fontWeight: '800', color: '#ccc', lineHeight: 1.1, minHeight: '46px' }}>—</div>
+    ) : (
+      <AnimatedNumber value={value} color={color} animStart={animStart} />
+    )}
+    <div style={{ fontSize: '12px', fontWeight: '700', color: '#1c1c1c', marginTop: '8px', letterSpacing: '0.2px' }}>
+      {label}
+    </div>
+    {sublabel && (
+      <div style={{ fontSize: '10px', color: '#aaa', marginTop: '3px' }}>{sublabel}</div>
+    )}
     {!loading && sources && <SourcePills sources={sources} total={total} />}
   </TiltCard>
 )
 
+const PlainStatCard = ({ value, label, sublabel, color, loading, animStart }) => (
+  <TiltCard color={color}>
+    {loading ? (
+      <div style={{ fontSize: '38px', fontWeight: '800', color: '#ccc', lineHeight: 1.1, minHeight: '46px' }}>—</div>
+    ) : (
+      <AnimatedNumber value={value} color={color} animStart={animStart} />
+    )}
+    <div style={{ fontSize: '12px', fontWeight: '700', color: '#1c1c1c', marginTop: '8px', letterSpacing: '0.2px' }}>
+      {label}
+    </div>
+    {sublabel && (
+      <div style={{ fontSize: '10px', color: '#aaa', marginTop: '3px' }}>{sublabel}</div>
+    )}
+  </TiltCard>
+)
+
+// ── Section title ─────────────────────────────────────────────────────────────
+
+const SectionTitle = ({ children }) => (
+  <h2 style={{
+    fontSize: '11px',
+    fontWeight: '700',
+    textTransform: 'uppercase',
+    letterSpacing: '1.2px',
+    color: '#aaa',
+    margin: '0 0 12px',
+  }}>
+    {children}
+  </h2>
+)
+
+// ── Format last login ─────────────────────────────────────────────────────────
+
+const formatLoginDate = (iso) => {
+  if (!iso) return 'No login recorded yet'
+  const d = new Date(iso)
+  return d.toLocaleDateString('en-US', {
+    weekday: 'short', month: 'short', day: 'numeric', year: 'numeric',
+  }) + ' at ' + d.toLocaleTimeString('en-US', {
+    hour: '2-digit', minute: '2-digit', second: '2-digit',
+  })
+}
+
+// ── Page label prettifier ─────────────────────────────────────────────────────
+
+const PAGE_LABELS = {
+  '/':             '🏠 Home (index)',
+  '/home.html':    '🏠 Home',
+  '/about.html':   'ℹ️  About',
+  '/pricing.html': '💰 Pricing',
+  '/contact.html': '📬 Contact',
+}
+
+const prettyPath = (p) => PAGE_LABELS[p] || p || '(unknown)'
+
+// Distinct bar colours per path so each row stands out
+const PATH_COLORS = ['#2563eb', '#7c3aed', '#0891b2', '#059669', '#d97706', '#dc2626']
+
+// ── Views by Landing Page panel ───────────────────────────────────────────────
+
+const ViewsByPath = ({ viewsByPath, viewsAllTime, loading }) => {
+  const panel = {
+    background: '#fff',
+    borderRadius: '12px',
+    padding: '20px',
+    boxShadow: '0 1px 6px rgba(0,0,0,0.07)',
+    marginBottom: '24px',
+    boxSizing: 'border-box',
+    width: '100%',
+    overflowX: 'hidden',
+  }
+
+  if (loading) {
+    return (
+      <div style={panel}>
+        <p style={{ color: '#ccc', margin: 0, fontSize: '13px' }}>Loading...</p>
+      </div>
+    )
+  }
+
+  if (!viewsByPath || viewsByPath.length === 0) {
+    return (
+      <div style={panel}>
+        <p style={{ color: '#aaa', margin: 0, fontSize: '13px' }}>No page view data yet.</p>
+      </div>
+    )
+  }
+
+  const maxCount = Math.max(...viewsByPath.map((r) => r.count), 1)
+
+  return (
+    <div style={panel}>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+        {viewsByPath.map((row, i) => {
+          const color = PATH_COLORS[i % PATH_COLORS.length]
+          const pct   = viewsAllTime > 0 ? Math.round((row.count / viewsAllTime) * 100) : 0
+          const barW  = Math.round((row.count / maxCount) * 100)
+
+          return (
+            <div key={row._id || i}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px', fontSize: '12px', gap: '8px' }}>
+                <span style={{ fontWeight: '700', color: '#222', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: '60%' }}>
+                  {prettyPath(row._id)}
+                </span>
+                <span style={{ display: 'flex', alignItems: 'center', gap: '6px', flexShrink: 0 }}>
+                  <span style={{
+                    background: color,
+                    color: '#fff',
+                    borderRadius: '99px',
+                    padding: '1px 8px',
+                    fontSize: '11px',
+                    fontWeight: '800',
+                  }}>
+                    {row.count}
+                  </span>
+                  <span style={{ color: '#aaa', fontSize: '11px', fontWeight: '600' }}>
+                    {pct}%
+                  </span>
+                </span>
+              </div>
+              <div style={{ background: '#f0f0f0', borderRadius: '99px', height: '7px', overflow: 'hidden' }}>
+                <div style={{ width: `${barW}%`, background: color, height: '100%', borderRadius: '99px', transition: 'width 0.6s ease' }} />
+              </div>
+            </div>
+          )
+        })}
+      </div>
+    </div>
+  )
+}
+
 // ── Main Dashboard ────────────────────────────────────────────────────────────
+
 const Dashboard = () => {
   const [data, setData] = useState({
     viewsToday: 0, views7Days: 0, views30Days: 0, viewsAllTime: 0,
-    leadsCount: 0, botAlerts24h: 0, recentContacts: [], serviceBreakdown: [],
-    sourcesToday: {}, sources7Days: {}, sources30Days: {}, sourcesAllTime: {},
-    viewsByPath: [], lastLogin: null,
+    leadsCount: 0, botAlerts24h: 0,
+    recentContacts: [], serviceBreakdown: [],
+    sourcesToday:   { instagram: 0, tiktok: 0, facebook: 0, direct: 0 },
+    sources7Days:   { instagram: 0, tiktok: 0, facebook: 0, direct: 0 },
+    sources30Days:  { instagram: 0, tiktok: 0, facebook: 0, direct: 0 },
+    sourcesAllTime: { instagram: 0, tiktok: 0, facebook: 0, direct: 0 },
+    viewsByPath: [],
+    lastLogin: null,
   })
   const [loading, setLoading] = useState(true)
   const [animStart, setAnimStart] = useState(false)
 
   useEffect(() => {
-    const api = new ApiClient()
+    const api = new window.AdminJS.ApiClient()
     api.getDashboard()
-      .then((res) => {
-        setData(res.data)
+      .then((response) => {
+        setData(response.data)
         setLoading(false)
-        setTimeout(() => setAnimStart(true), 150)
+        setTimeout(() => setAnimStart(true), 120)
       })
-      .catch(() => setLoading(false))
+      .catch((err) => { console.error('Dashboard fetch error:', err); setLoading(false) })
   }, [])
 
+  const conversionRate = data.viewsAllTime > 0
+    ? ((data.leadsCount / data.viewsAllTime) * 100).toFixed(1)
+    : '0.0'
+
+  const wrap = {
+    padding: '20px 16px',
+    background: '#f3f5f8',
+    minHeight: '100vh',
+    fontFamily: '"Segoe UI", system-ui, -apple-system, sans-serif',
+    boxSizing: 'border-box',
+  }
+
+  const panel = {
+    background: '#fff',
+    borderRadius: '12px',
+    padding: '20px',
+    boxShadow: '0 1px 6px rgba(0,0,0,0.07)',
+    marginBottom: '24px',
+    boxSizing: 'border-box',
+    width: '100%',
+    overflowX: 'hidden',
+  }
+
+  const cardRow = {
+    display: 'flex',
+    gap: '12px',
+    flexWrap: 'wrap',
+    marginBottom: '24px',
+  }
+
   return (
-    <div style={{ padding: '30px', background: '#f4f7f9', minHeight: '100vh' }}>
-      <style>{`@keyframes slideUp { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }`}</style>
-      
-      <div style={{ marginBottom: '30px' }}>
-        <h1 style={{ fontWeight: '800', fontSize: '24px' }}>Hydro Sweep Services Command Center</h1>
-        <p style={{ color: '#666' }}>Live overview of exterior maintenance leads and traffic.</p>
+    <div style={wrap}>
+
+      <style>{`
+        @keyframes slideUp {
+          from { transform: translateY(12px); opacity: 0.4; }
+          to   { transform: translateY(0);    opacity: 1;   }
+        }
+      `}</style>
+
+      {/* ── Header ── */}
+      <div style={panel}>
+        <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'flex-start', justifyContent: 'space-between', gap: '10px' }}>
+          <div>
+            <h1 style={{ margin: 0, fontSize: '20px', fontWeight: '800', color: '#111' }}>
+              Hydro Sweep Services
+            </h1>
+            <p style={{ margin: '4px 0 0', color: '#999', fontSize: '12px' }}>
+              Admin Dashboard · Live business overview
+            </p>
+          </div>
+          <div style={{
+            display: 'flex', alignItems: 'center', gap: '7px',
+            background: '#f3f5f8', border: '1px solid #e5e7eb',
+            borderRadius: '8px', padding: '8px 12px', flexShrink: 0,
+          }}>
+            <span style={{ fontSize: '14px' }}>🔐</span>
+            <div>
+              <div style={{ fontSize: '9px', fontWeight: '700', textTransform: 'uppercase', letterSpacing: '1px', color: '#aaa' }}>
+                Last Login
+              </div>
+              <div style={{ fontSize: '12px', fontWeight: '600', color: '#333', whiteSpace: 'nowrap' }}>
+                {loading ? '—' : formatLoginDate(data.lastLogin)}
+              </div>
+            </div>
+          </div>
+        </div>
       </div>
 
-      <div style={{ display: 'flex', gap: '15px', flexWrap: 'wrap', marginBottom: '30px' }}>
-        <StatCard loading={loading} animStart={animStart} value={data.viewsToday} label="Today" color="#2563eb" sources={data.sourcesToday} total={data.viewsToday} />
-        <StatCard loading={loading} animStart={animStart} value={data.views7Days} label="7 Days" color="#7c3aed" sources={data.sources7Days} total={data.views7Days} />
-        <StatCard loading={loading} animStart={animStart} value={data.views30Days} label="30 Days" color="#0891b2" sources={data.sources30Days} total={data.views30Days} />
-        <StatCard loading={loading} animStart={animStart} value={data.viewsAllTime} label="All Time" color="#059669" sources={data.sourcesAllTime} total={data.viewsAllTime} />
+      {/* ── Traffic KPIs ── */}
+      <SectionTitle>Site Traffic</SectionTitle>
+      <div style={cardRow}>
+        <StatCard loading={loading} animStart={animStart} value={data.viewsToday}   label="Views Today"    sublabel="Since midnight" color="#2563eb" sources={data.sourcesToday}   total={data.viewsToday} />
+        <StatCard loading={loading} animStart={animStart} value={data.views7Days}   label="Last 7 Days"    sublabel="Rolling week"   color="#7c3aed" sources={data.sources7Days}   total={data.views7Days} />
+        <StatCard loading={loading} animStart={animStart} value={data.views30Days}  label="Last 30 Days"   sublabel="Rolling month"  color="#0891b2" sources={data.sources30Days}  total={data.views30Days} />
+        <StatCard loading={loading} animStart={animStart} value={data.viewsAllTime} label="All-Time Views" sublabel="Since launch"   color="#059669" sources={data.sourcesAllTime} total={data.viewsAllTime} />
       </div>
 
-      <div style={{ background: '#fff', padding: '20px', borderRadius: '12px', boxShadow: '0 4px 12px rgba(0,0,0,0.05)' }}>
-         <h2 style={{ fontSize: '14px', textTransform: 'uppercase', color: '#999', marginBottom: '15px' }}>Recent Lead History</h2>
-         {/* Table or list of recentContacts mapping goes here */}
-         {data.recentContacts?.length > 0 ? (
-           <div style={{ overflowX: 'auto' }}>
-             <table style={{ width: '100%', textAlign: 'left', borderCollapse: 'collapse' }}>
-               <thead>
-                 <tr style={{ color: '#aaa', fontSize: '11px' }}>
-                   <th style={{ padding: '10px' }}>NAME</th>
-                   <th style={{ padding: '10px' }}>SERVICE</th>
-                   <th style={{ padding: '10px' }}>DATE</th>
-                 </tr>
-               </thead>
-               <tbody>
-                 {data.recentContacts.map((c, i) => (
-                   <tr key={i} style={{ borderTop: '1px solid #eee', fontSize: '13px' }}>
-                     <td style={{ padding: '10px', fontWeight: '600' }}>{c.fullName}</td>
-                     <td style={{ padding: '10px' }}>{c.message}</td>
-                     <td style={{ padding: '10px', color: '#aaa' }}>{new Date(c.createdAt).toLocaleDateString()}</td>
-                   </tr>
-                 ))}
-               </tbody>
-             </table>
-           </div>
-         ) : <p>No leads yet.</p>}
+      {/* ── Views by Landing Page ── */}
+      <SectionTitle>All-Time Views by Landing Page</SectionTitle>
+      <ViewsByPath
+        viewsByPath={data.viewsByPath}
+        viewsAllTime={data.viewsAllTime}
+        loading={loading}
+      />
+
+      {/* ── Leads, Conversion, Security ── */}
+      <SectionTitle>Leads, Conversion &amp; Security</SectionTitle>
+      <div style={cardRow}>
+        <PlainStatCard loading={loading} animStart={animStart} value={data.leadsCount}        label="Total Leads"      sublabel="Contact form entries"   color="#d97706" />
+        <PlainStatCard loading={loading} animStart={animStart} value={`${conversionRate}%`}   label="Conversion Rate"  sublabel="Leads ÷ All-Time Views" color="#16a34a" />
+        <PlainStatCard loading={loading} animStart={animStart} value={data.botAlerts24h}      label="Bot Alerts (24h)" sublabel="Honeypot / /admin hits"  color="#dc2626" />
       </div>
+
+      {/* ── Recent Contacts ── */}
+      <SectionTitle>Recent Contacts</SectionTitle>
+      <div style={panel}>
+        {loading ? (
+          <p style={{ color: '#ccc', margin: 0, fontSize: '13px' }}>Loading...</p>
+        ) : data.recentContacts.length === 0 ? (
+          <p style={{ color: '#aaa', margin: 0, fontSize: '13px' }}>No contacts yet.</p>
+        ) : (
+          <div style={{ overflowX: 'auto', WebkitOverflowScrolling: 'touch' }}>
+            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '12px', minWidth: '520px' }}>
+              <thead>
+                <tr style={{ borderBottom: '2px solid #f0f0f0' }}>
+                  {['Name', 'Email', 'Phone', 'Service / Message', 'Date'].map((h) => (
+                    <th key={h} style={{
+                      textAlign: 'left', padding: '7px 10px', fontWeight: '700',
+                      color: '#888', fontSize: '10px', textTransform: 'uppercase',
+                      letterSpacing: '0.8px', whiteSpace: 'nowrap',
+                    }}>{h}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {data.recentContacts.map((c, i) => (
+                  <tr key={i} style={{ borderBottom: '1px solid #f7f7f7' }}>
+                    <td style={{ padding: '9px 10px', fontWeight: '600', color: '#111', whiteSpace: 'nowrap' }}>{c.fullName || '—'}</td>
+                    <td style={{ padding: '9px 10px', color: '#555', whiteSpace: 'nowrap', maxWidth: '160px', overflow: 'hidden', textOverflow: 'ellipsis' }}>{c.email || '—'}</td>
+                    <td style={{ padding: '9px 10px', color: '#555', whiteSpace: 'nowrap' }}>{c.phone || '—'}</td>
+                    <td style={{ padding: '9px 10px', color: '#555', maxWidth: '140px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{c.message || '—'}</td>
+                    <td style={{ padding: '9px 10px', color: '#aaa', whiteSpace: 'nowrap', fontSize: '11px' }}>
+                      {c.createdAt ? new Date(c.createdAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : '—'}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+
+      {/* ── Service Breakdown ── */}
+      <SectionTitle>Service Breakdown</SectionTitle>
+      <div style={panel}>
+        {loading ? (
+          <p style={{ color: '#ccc', margin: 0, fontSize: '13px' }}>Loading...</p>
+        ) : data.serviceBreakdown.length === 0 ? (
+          <p style={{ color: '#aaa', margin: 0, fontSize: '13px' }}>No data yet.</p>
+        ) : (() => {
+          const max = Math.max(...data.serviceBreakdown.map((s) => s.count), 1)
+          return (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+              {data.serviceBreakdown.map((s, i) => (
+                <div key={i}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '5px', fontSize: '12px' }}>
+                    <span style={{ fontWeight: '600', color: '#222', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: '75%' }}>
+                      {s._id || 'Unspecified'}
+                    </span>
+                    <span style={{ color: '#888', fontWeight: '700', flexShrink: 0, marginLeft: '8px' }}>{s.count}</span>
+                  </div>
+                  <div style={{ background: '#f0f0f0', borderRadius: '99px', height: '7px', overflow: 'hidden' }}>
+                    <div style={{ width: `${(s.count / max) * 100}%`, background: '#2563eb', height: '100%', borderRadius: '99px' }} />
+                  </div>
+                </div>
+              ))}
+            </div>
+          )
+        })()}
+      </div>
+
     </div>
   )
 }
